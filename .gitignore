@@ -3,7 +3,7 @@
 .env
 
 # Ignorar el código generado por la factoría para tus clientes
-outputs/application/backend/
+outputs/
 
 # Ignorar la caché de diseño e inventario (JSONs en specs)
 specs/

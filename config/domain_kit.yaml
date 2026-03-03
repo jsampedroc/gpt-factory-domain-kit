@@ -1,0 +1,11 @@
+domain:
+  entities:
+    - name: "Identity"
+      attributes:
+        - name: "username"
+          type: "String"
+        - name: "email"
+          type: "String"
+        - name: "password"
+          type: "String"
+      rules: "Validar formato de email y hashear password"

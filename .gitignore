@@ -1,0 +1,47 @@
+### --- AI Factory Core ---
+# Ignorar las claves de API (¡CRÍTICO para seguridad!)
+.env
+
+# Ignorar el código generado por la factoría para tus clientes
+outputs/application/backend/
+
+# Ignorar la caché de diseño e inventario (JSONs en specs)
+specs/
+
+# Ignorar logs locales de ejecución si no están dentro de outputs
+*.log
+
+### --- Python Standard ---
+# Ignorar archivos compilados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignorar entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+### --- OS Specific ---
+# Archivos basura de macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Archivos basura de Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+### --- IDEs ---
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# IntelliJ
+.idea/
+*.iml

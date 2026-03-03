@@ -1,0 +1,98 @@
+layers:
+
+  domain:
+    paths:
+      - domain/**
+    forbidden_imports:
+      - lombok.*
+      - org.hibernate.*
+      - jakarta.*
+      - javax.*
+      - org.springframework.*
+    required_patterns:
+      - "package .*\\.domain\\."
+    rules:
+      - description: Domain must be pure Java
+        regex: "class|record|enum"
+
+  application:
+    paths:
+      - application/**
+    forbidden_imports:
+      - lombok.*
+      - org.hibernate.*
+      - jakarta.*
+      - javax.*
+    allowed_imports:
+      - java.*
+      - com.*.domain.*
+    rules:
+      - description: Application must not depend on infrastructure
+        forbidden_regex: "infrastructure\\."
+
+  infrastructure:
+    paths:
+      - infrastructure/**
+    rules:
+      - description: Infrastructure may depend on domain and application
+        allowed_regex: "(domain|application|java|jakarta|org.springframework).*"
+
+  infrastructure_persistence_entity:
+    paths:
+      - infrastructure/persistence/entity/**
+    required_imports:
+      - jakarta.persistence.Entity
+    forbidden_imports:
+      - lombok.*
+      - org.hibernate.*
+
+  infrastructure_persistence_spring:
+    paths:
+      - infrastructure/persistence/spring/**
+    required_patterns:
+      - "extends JpaRepository<.*JpaEntity, UUID>"
+    forbidden_patterns:
+      - "domain\\.model"
+
+  infrastructure_persistence_adapter:
+    paths:
+      - infrastructure/persistence/adapter/**
+    required_patterns:
+      - "implements .*Repository"
+    forbidden_imports:
+      - lombok.*
+
+contracts:
+
+  entity_lifecycle:
+    description: >
+      Each entity must have:
+      ID Record, Domain Entity, Repository Interface,
+      Service, DTO Request/Response,
+      JPA Entity, Spring Data Repository,
+      JPA Adapter and REST Controller.
+    required_files:
+      - "domain/model/{Entity}.java"
+      - "domain/valueobject/{Entity}Id.java"
+      - "domain/repository/{Entity}Repository.java"
+      - "application/service/{Entity}Service.java"
+      - "application/dto/{Entity}Request.java"
+      - "application/dto/{Entity}Response.java"
+      - "infrastructure/persistence/entity/{Entity}JpaEntity.java"
+      - "infrastructure/persistence/spring/SpringData{Entity}Repository.java"
+      - "infrastructure/persistence/adapter/Jpa{Entity}RepositoryAdapter.java"
+      - "infrastructure/rest/{Entity}Controller.java"
+
+  no_lombok_anywhere:
+    forbidden_imports:
+      - lombok.*
+
+  no_hibernate_annotations:
+    forbidden_imports:
+      - org.hibernate.*
+
+  no_jakarta_outside_infra:
+    forbidden_imports:
+      - jakarta.*
+    except_paths:
+      - infrastructure/**

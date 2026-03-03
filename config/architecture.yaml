@@ -1,0 +1,24 @@
+project:
+  name: "preschoolmanagement" # Tu paquete base será com.preschoolmanagement
+  version: "1.0.0"
+
+backend:
+  language: "java"
+  version: "17"
+  framework: "spring-boot"
+  buildTool: "maven"
+  database: "postgresql"
+  orm: "jpa"
+  dtoMapper: "mapstruct"
+  lombok: true
+  logging: "logback"
+  testing:
+    unit: "junit-5"
+    mocking: "mockito"
+    coverage: "jacoco"
+
+infrastructure:
+  containerization: "docker"
+  orchestration: "docker-compose"
+  ci_cd: "github-actions"
+  monitoring: "elk-stack"

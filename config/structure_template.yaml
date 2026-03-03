@@ -1,0 +1,25 @@
+# config/structure_template.yaml
+project_structure:
+  backend:
+    base_package: "com.factoria.app"
+    layers:
+      domain:
+        - model      # Entidades puras
+        - service    # Reglas de negocio puras
+        - ports/in   # Interfaces para Casos de Uso
+        - ports/out  # Interfaces para Repositorios
+      application:
+        - usecase    # Orquestación de lógica
+        - dto        # Objetos de transferencia
+      infrastructure:
+        - rest/controllers # Adaptadores de entrada
+        - rest/mappers     # Conversores DTO <-> Dominio
+        - persistence/entities # JPA Entities
+        - persistence/adapters # Implementación Repositorios
+        - config/security      # JWT Config
+  frontend:
+    src:
+      - components   # UI Reutilizable
+      - pages        # Vistas completas
+      - store        # Zustand (Estado)
+      - services     # Llamadas Axios

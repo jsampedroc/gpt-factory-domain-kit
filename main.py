@@ -18,6 +18,10 @@ from ai.graph.task_graph_builder import TaskGraphBuilder
 import ast
 from collections import defaultdict
 from ai.knowledge.domain_memory import DomainMemory
+from ai.graph.code_dependency_graph import CodeDependencyGraph
+from ai.agents.refactor_agent import RefactorAgent
+from ai.agents.runtime_feedback_agent import RuntimeFeedbackAgent  # TODO: implement this module
+from ai.agents.evolution_agent import EvolutionAgent
 
 
 # ------------------ Agents ------------------
@@ -169,9 +173,9 @@ class ImportDependencyAnalyzer:
                 rel = imp.replace(factory.base_package + ".", "")
                 rel = rel.replace(".", "/") + ".java"
 
-                for node in nodes:
-                    if node.endswith(rel):
-                        edges[path].add(node)
+                for target in nodes:
+                    if target.endswith(rel):
+                        edges[path].add(target)
 
         return nodes, edges
 
@@ -191,6 +195,10 @@ class FactoryOrchestrator:
         self.compile_fix_agent = CompileFixAgent()
         self.task_graph_builder = TaskGraphBuilder()
         self.import_dependency_analyzer = ImportDependencyAnalyzer()
+        self.code_dependency_graph = CodeDependencyGraph()
+        self.refactor_agent = RefactorAgent()
+        self.runtime_feedback_agent = RuntimeFeedbackAgent()  # TODO: implement this module
+        self.evolution_agent = EvolutionAgent()
 
     def run(self):
 
@@ -267,25 +275,53 @@ class FactoryOrchestrator:
 
         f.log("🚀 Code generation finished")
 
-        # ---- IMPORT DEPENDENCY ANALYSIS (post-generation) ----
+        # ---- CODE DEPENDENCY ANALYSIS (post-generation) ----
         try:
             nodes, edges = self.import_dependency_analyzer.build_graph(f, inventory)
             f.log(f"🔎 Import dependency scan completed ({len(edges)} relations detected)")
         except Exception as e:
             f.log(f"⚠️ Import dependency scan skipped: {e}")
 
-        success, compile_output = self.compile_agent.run(f)
+        # ---- COMPILE AND FIX LOOP ----
+        MAX_FIX_ATTEMPTS = 5
+        for attempt in range(MAX_FIX_ATTEMPTS):
 
-        if not success:
-            f.log("🧠 Attempting automatic compile fix...")
+            success, compile_output = self.compile_agent.run(f)
+
+            if success:
+                break
+
+            f.log(f"🧠 Compile fix attempt {attempt+1}/{MAX_FIX_ATTEMPTS}")
+
             fixed = self.compile_fix_agent.run(f, compile_output)
 
-            if fixed:
-                f.log("🔧 Compile fix attempt applied")
-                success, _ = self.compile_agent.run(f)
+            if not fixed:
+                break
 
         if success:
             f.log("✨ PROJECT GENERATED AND VERIFIED")
+
+            # ---- AUTONOMOUS REFACTOR PHASE ----
+            try:
+                self.refactor_agent.run(f)
+                f.log("🧠 Refactor agent completed")
+            except Exception as e:
+                f.log(f"⚠️ Refactor phase skipped: {e}")
+
+            # ---- RUNTIME FEEDBACK PHASE ----
+            try:
+                runtime_report = self.runtime_feedback_agent.run(f)
+
+                evolve = self.evolution_agent.run(f, runtime_report)
+
+                if evolve:
+                    f.log("🔁 Evolution cycle triggered")
+
+                f.log("📊 Runtime feedback analysis completed")
+
+            except Exception as e:
+                f.log(f"⚠️ Runtime feedback skipped: {e}")
+
         else:
             f.log("⚠️ Project generated but compilation still failing")
 
@@ -715,7 +751,7 @@ class SoftwareFactory:
             "      <version>${mapstruct.version}</version>\n"
             "    </dependency>\n"
             "  </dependencies>\n\n"
-            "  <build>\n"
+           "   <build>\n"
             "    <plugins>\n"
             "      <plugin>\n"
             "        <groupId>org.springframework.boot</groupId>\n"

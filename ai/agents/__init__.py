@@ -5,6 +5,9 @@ from .qa_agent import build_qa_agent
 from .sre_agent import build_sre_agent
 from .frontend_builder import build_frontend_builder
 from .principal_architect import build_principal_architect
+from .refactor_agent import RefactorAgent
+from .runtime_feedback_agent import RuntimeFeedbackAgent
+from .evolution_agent import EvolutionAgent 
 
 __all__ = [
     "build_domain_reasoner",
@@ -13,5 +16,8 @@ __all__ = [
     "build_qa_agent",
     "build_sre_agent",
     "build_frontend_builder",
-    "build_principal_architect"
+    "build_principal_architect",
+    "RefactorAgent",
+    "RuntimeFeedbackAgent",
+    "EvolutionAgent",
 ]

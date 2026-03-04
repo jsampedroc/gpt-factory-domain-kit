@@ -2,9 +2,10 @@
   "aggregates": {},
   "value_objects": {
     "ContactInformation": 1,
-    "GeoLocation": 1,
-    "Money": 1,
-    "Address": 2
+    "GeoLocation": 2,
+    "Money": 2,
+    "Address": 4,
+    "ActivityLog": 1
   },
   "events": {}
 }

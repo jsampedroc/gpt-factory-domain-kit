@@ -383,6 +383,7 @@ class SoftwareFactory:
                     "path": f"{folder}/{tpl.format(name=ent['name'])}",
                     "entity": ent["name"],
                     "description": desc,
+                    "fields": ent.get("fields", []),   # 👈 ESTA LÍNEA ES CLAVE
                 })
 
         return inventory
@@ -537,6 +538,7 @@ class SoftwareFactory:
                     context_data=json.dumps({
                         "name": item["entity"],
                         "kind": item["description"],
+                        "fields": item.get("fields", []),   # 👈 ESTA LÍNEA FALTA
                         "values": item.get("values", []),
                         "path": rel_path,
                         "base_package": self.base_package,

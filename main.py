@@ -3,6 +3,7 @@ import sys
 import json
 import yaml
 import re
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ from ai.pipeline.state_manager import StateManager
 from ai.pipeline.task_executor import TaskExecutor
 from ai.utils.logging_helper import Tee
 from ai.validators.layer_contracts import LayerContracts
+from ai.domain.semantic_type_detector import detect_semantic_types
 
 
 # ------------------ Pipeline State ------------------
@@ -56,6 +58,42 @@ class SoftwareFactory:
         self.contracts = LayerContracts.load(contracts_path) if contracts_path.exists() else None
 
     # ------------------------------------------------
+    def _compile_project(self):
+        """
+        Attempts to compile the generated Spring Boot project using Maven.
+        Returns (success, output).
+        """
+        backend_path = self.output_root / "backend"
+
+        if not backend_path.exists():
+            self.log("⚠️ Backend directory not found, skipping compilation")
+            return True, ""
+
+        try:
+            self.log("🔧 Running Maven compilation...")
+
+            result = subprocess.run(
+                ["mvn", "-q", "compile"],
+                cwd=backend_path,
+                capture_output=True,
+                text=True
+            )
+
+            output = result.stdout + "\n" + result.stderr
+
+            if result.returncode == 0:
+                self.log("✅ Maven compilation successful")
+                return True, output
+            else:
+                self.log("❌ Maven compilation failed")
+                self.log(output)
+                return False, output
+
+        except FileNotFoundError:
+            self.log("⚠️ Maven not installed or not available in PATH")
+            return True, ""
+
+    # ------------------------------------------------
     def log(self, msg: str):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
@@ -95,9 +133,10 @@ class SoftwareFactory:
 
     # ------------------------------------------------
     def resolve_generation_mode(self, item):
-        desc = item["description"]
 
-        if desc == "ENUM":
+        desc = (item.get("description") or "").strip().upper()
+
+        if desc in {"ENUM", "GLOBAL_ENUM", "SHARED_ENUM"}:
             return (
                 "MODE_DOMAIN_ENUM",
                 "domain/shared/ExampleEnum.java",
@@ -109,139 +148,81 @@ class SoftwareFactory:
                     "- NO frameworks\n"
                     "- NO Lombok\n"
                     "- Enum values in UPPER_SNAKE_CASE\n"
-                    "- Follow the golden sample EXACTLY (structure/style)\n"
+                    "- Follow the golden sample EXACTLY\n"
                 )
             )
 
-        if desc == "Entity":
+        if desc == "ENTITY":
             return (
                 "MODE_DOMAIN_ENTITY",
                 "domain/Example.java",
-                (
-                    "GENERATION MODE: MODE_DOMAIN_ENTITY\n"
-                    "STRICT RULES (NON-NEGOTIABLE):\n"
-                    "- Plain Java ONLY\n"
-                    "- NO Lombok\n"
-                    "- NO jakarta.*, javax.*\n"
-                    "- NO annotations of any kind\n"
-                    "- NO frameworks\n"
-                    "- Use explicit constructors\n"
-                    "- Use Objects.requireNonNull ONLY if needed for fields declared in THIS class\n"
-                    "- DO NOT add unused imports\n"
-                    "- Follow golden sample EXACTLY\n"
-                )
+                ""
             )
 
-        if desc == "ID Record":
+        if desc == "ID RECORD":
             return (
                 "MODE_ID_RECORD",
                 "domain/ExampleId.java",
                 (
                     "GENERATION MODE: MODE_ID_RECORD\n"
                     "STRICT RULES (NON-NEGOTIABLE):\n"
-                    "- Java class or record (no Lombok)\n"
+                    "- Use Java record\n"
+                    "- Field name MUST be 'value'\n"
+                    "- Field type MUST be UUID\n"
                     "- Implements ValueObject\n"
+                    "- Include canonical constructor validation\n"
+                    "- Throw IllegalArgumentException or Objects.requireNonNull if value is null\n"
+                    "- Include static factory method newId() returning new <Id>(UUID.randomUUID())\n"
                     "- NO annotations\n"
                     "- NO frameworks\n"
-                    "- Follow golden sample EXACTLY\n"
+                    "- NO Lombok\n"
                 )
             )
 
-        if desc == "Repository Interface":
+        if desc == "VALUEOBJECT":
+            return (
+                "MODE_VALUE_OBJECT",
+                "domain/valueobject/ExampleValueObject.java",
+                (
+                    "GENERATION MODE: MODE_VALUE_OBJECT\n"
+                    "STRICT RULES (NON-NEGOTIABLE):\n"
+                    "- Use final class\n"
+                    "- private final field(s)\n"
+                    "- Validate invariants in constructor\n"
+                    "- Throw IllegalArgumentException when invalid\n"
+                    "- Use Objects.requireNonNull\n"
+                    "- Implement ValueObject\n"
+                    "- Provide getter method(s)\n"
+                    "- NO Lombok\n"
+                    "- NO frameworks\n"
+                )
+            )
+
+        if desc == "REPOSITORY INTERFACE":
             return ("MODE_DOMAIN_REPOSITORY_PORT", "domain/ExampleRepository.java", "")
 
-        if desc == "Service":
+        if desc == "SERVICE":
             return ("MODE_APPLICATION_SERVICE", "application/ExampleService.java", "")
 
-        if desc == "Mapper":
+        if desc == "MAPPER":
             return ("MODE_MAPPER", "application/ExampleMapper.java", "")
 
         if desc == "DTO_REQUEST":
-            return (
-                "MODE_DTO_REQUEST",
-                "application/ExampleRequest.java",
-                (
-                    "GENERATION MODE: MODE_DTO_REQUEST\n"
-                    "STRICT RULES (NON-NEGOTIABLE):\n"
-                    "- Plain Java DTO\n"
-                    "- NO annotations\n"
-                    "- NO jakarta.*, javax.*\n"
-                    "- NO Lombok\n"
-                    "- final fields\n"
-                    "- constructor with all fields\n"
-                    "- getters only\n"
-                    "- Follow golden sample EXACTLY\n"
-                )
-            )
+            return ("MODE_DTO_REQUEST", "application/ExampleRequest.java", "")
 
         if desc == "DTO_RESPONSE":
-            return (
-                "MODE_DTO_RESPONSE",
-                "application/ExampleResponse.java",
-                (
-                    "GENERATION MODE: MODE_DTO_RESPONSE\n"
-                    "STRICT RULES (NON-NEGOTIABLE):\n"
-                    "- Plain Java DTO\n"
-                    "- NO annotations\n"
-                    "- NO jakarta.*, javax.*\n"
-                    "- NO Lombok\n"
-                    "- final fields\n"
-                    "- constructor with all fields\n"
-                    "- getters only\n"
-                    "- Follow golden sample EXACTLY\n"
-                )
-            )
+            return ("MODE_DTO_RESPONSE", "application/ExampleResponse.java", "")
 
-        # ✅ OPTION B (HEXAGONAL CORRECT): JPA ENTITY + SPRING DATA + ADAPTER
         if desc == "JPA_ENTITY":
-            return (
-                "MODE_JPA_ENTITY",
-                "infrastructure/ExampleJpaEntity.java",
-                (
-                    "GENERATION MODE: MODE_JPA_ENTITY\n"
-                    "STRICT RULES (NON-NEGOTIABLE):\n"
-                    "- infrastructure.persistence.entity\n"
-                    "- Use ONLY jakarta.persistence annotations (@Entity, @Table, @Id, @Column)\n"
-                    "- NO Lombok\n"
-                    "- NO Hibernate-specific annotations (org.hibernate.*)\n"
-                    "- ID type MUST be java.util.UUID\n"
-                    "- Provide: protected no-arg ctor + explicit public ctor\n"
-                    "- Provide explicit getters\n"
-                    "- NO mapping methods to/from domain inside this class\n"
-                    "- Follow golden sample EXACTLY\n"
-                )
-            )
+            return ("MODE_JPA_ENTITY", "infrastructure/ExampleJpaEntity.java", "")
 
         if desc == "SPRING_DATA_REPOSITORY":
-            return (
-                "MODE_SPRING_DATA_REPOSITORY",
-                "infrastructure/SpringDataExampleRepository.java",
-                (
-                    "GENERATION MODE: MODE_SPRING_DATA_REPOSITORY\n"
-                    "STRICT RULES (NON-NEGOTIABLE):\n"
-                    "- Extends JpaRepository<ExampleJpaEntity, UUID>\n"
-                    "- NO domain model references in generics\n"
-                    "- NO Lombok\n"
-                    "- Follow golden sample EXACTLY\n"
-                )
-            )
+            return ("MODE_SPRING_DATA_REPOSITORY", "infrastructure/SpringDataExampleRepository.java", "")
 
         if desc == "JPA_ADAPTER":
-            return (
-                "MODE_JPA_ADAPTER",
-                "infrastructure/JpaExampleRepositoryAdapter.java",
-                (
-                    "GENERATION MODE: MODE_JPA_ADAPTER\n"
-                    "STRICT RULES (NON-NEGOTIABLE):\n"
-                    "- Implements domain repository interface\n"
-                    "- Depends on SpringData repo + JpaEntity\n"
-                    "- Explicit constructor injection\n"
-                    "- Mapping inside adapter (NO separate mapper class)\n"
-                    "- Follow golden sample EXACTLY\n"
-                )
-            )
+            return ("MODE_JPA_ADAPTER", "infrastructure/JpaExampleRepositoryAdapter.java", "")
 
-        if desc == "Controller":
+        if desc == "CONTROLLER":
             return ("MODE_REST_CONTROLLER", "infrastructure/ExampleController.java", "")
 
         return ("MODE_UNKNOWN", None, "")
@@ -348,10 +329,14 @@ class SoftwareFactory:
 
     # ------------------------------------------------
     def generate_inventory(self, model):
+
         inventory = []
 
-        # Domain enums
-        for enum in model.get("enums", []):
+        # el modelo puede venir como {domain_model:{...}}
+        dm = model.get("domain_model", model)
+
+        # ---------------- ENUMS ----------------
+        for enum in dm.get("global_enums", []):
             inventory.append({
                 "path": f"domain/shared/{enum['name']}.java",
                 "entity": enum["name"],
@@ -359,31 +344,42 @@ class SoftwareFactory:
                 "values": enum.get("values", []),
             })
 
-        layers = [
-            ("domain/model", "{name}.java", "Entity"),
-            ("domain/valueobject", "{name}Id.java", "ID Record"),
-            ("domain/repository", "{name}Repository.java", "Repository Interface"),
+        # ---------------- VALUE OBJECTS ----------------
+        for vo in dm.get("value_objects", []):
+            inventory.append({
+                "path": f"domain/valueobject/{vo['name']}.java",
+                "entity": vo["name"],
+                "description": "VALUEOBJECT",
+                "fields": vo.get("fields", []),
+            })
 
-            ("application/service", "{name}Service.java", "Service"),
+        layers = [
+
+            ("domain/model", "{name}.java", "ENTITY"),
+            ("domain/valueobject", "{name}Id.java", "ID RECORD"),
+            ("domain/repository", "{name}Repository.java", "REPOSITORY INTERFACE"),
+
+            ("application/service", "{name}Service.java", "SERVICE"),
             ("application/dto", "{name}Request.java", "DTO_REQUEST"),
             ("application/dto", "{name}Response.java", "DTO_RESPONSE"),
-            ("application/mapper", "{name}Mapper.java", "Mapper"),
+            ("application/mapper", "{name}Mapper.java", "MAPPER"),
 
-            # Infrastructure - persistence (Option B)
             ("infrastructure/persistence/entity", "{name}JpaEntity.java", "JPA_ENTITY"),
             ("infrastructure/persistence/spring", "SpringData{name}Repository.java", "SPRING_DATA_REPOSITORY"),
             ("infrastructure/persistence/adapter", "Jpa{name}RepositoryAdapter.java", "JPA_ADAPTER"),
 
-            ("infrastructure/rest", "{name}Controller.java", "Controller"),
+            ("infrastructure/rest", "{name}Controller.java", "CONTROLLER"),
         ]
 
-        for ent in model.get("entities", []):
+        for ent in dm.get("entities", []):
+
             for folder, tpl, desc in layers:
+
                 inventory.append({
                     "path": f"{folder}/{tpl.format(name=ent['name'])}",
                     "entity": ent["name"],
                     "description": desc,
-                    "fields": ent.get("fields", []),   # 👈 ESTA LÍNEA ES CLAVE
+                    "fields": ent.get("fields", []),
                 })
 
         return inventory
@@ -491,6 +487,16 @@ class SoftwareFactory:
                     base_package=self.base_package,
                 )
                 self.state.domain_model = json.loads(raw)
+                self.state.domain_model = detect_semantic_types(self.state.domain_model)
+
+                # domain_model can be wrapped as {"domain_model": {...}} depending on LLM output
+                dm = self.state.domain_model.get("domain_model", self.state.domain_model)
+
+                self.log(
+                    f"🧠 Semantic enrichment applied "
+                    f"(value_objects={len(dm.get('value_objects', []))}, "
+                    f"entities={len(dm.get('entities', []))})"
+                )
                 self.state.architecture = {
                     "file_inventory": self.generate_inventory(self.state.domain_model)
                 }
@@ -528,6 +534,7 @@ class SoftwareFactory:
                         )
 
                 prompt = mandatory_header + strict + "\n" + golden
+                
 
                 # ✅ CRITICAL: always pass base_package to write_code
                 code = self.executor.run_task(
@@ -538,7 +545,7 @@ class SoftwareFactory:
                     context_data=json.dumps({
                         "name": item["entity"],
                         "kind": item["description"],
-                        "fields": item.get("fields", []),   # 👈 ESTA LÍNEA FALTA
+                        "fields": item.get("fields", []),
                         "values": item.get("values", []),
                         "path": rel_path,
                         "base_package": self.base_package,
@@ -546,9 +553,50 @@ class SoftwareFactory:
                     }),
                 )
 
+                # ---------------- VERIFY CODE ----------------
+                from ai.validators.code_verifier import verify_java_code
+                from ai.validators.code_auto_fix import auto_fix_java_code
+
+                verification = verify_java_code(code)
+
+                if not verification["valid"]:
+                    self.log(f"⚠️ Verification issues in {file_name}: {verification['issues']}")
+
+                    code = auto_fix_java_code(code, verification["issues"])
+                    self.log(f"🔧 Auto-fix applied")
+
+                # ---------------- SAVE ----------------
                 self.save_to_disk(rel_path, code)
 
-            self.log("✨ PROJECT GENERATED SUCCESSFULLY")
+
+
+            self.log("🚀 Code generation finished")
+
+            # ---- Compilation Agent ----
+            success, compile_output = self._compile_project()
+
+            # ---- Compilation Fix Agent ----
+            if not success:
+                self.log("🧠 Attempting automatic compile fix...")
+
+                try:
+                    fixed = self.executor.run_task(
+                        "fix_compile_error",
+                        error_log=compile_output,
+                        base_package=self.base_package
+                    )
+
+                    if fixed:
+                        self.log("🔧 Compile fix attempt applied")
+                        success, _ = self._compile_project()
+
+                except Exception as e:
+                    self.log(f"⚠️ Compile fix agent failed: {e}")
+
+            if success:
+                self.log("✨ PROJECT GENERATED AND VERIFIED")
+            else:
+                self.log("⚠️ Project generated but compilation still failing")
 
         except Exception as e:
             self.log(f"❌ FATAL: {e}")

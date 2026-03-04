@@ -1,0 +1,16 @@
+{
+  "value_objects": [
+    "Email",
+    "Money",
+    "CurrencyCode",
+    "MonetaryAmount",
+    "DateRange"
+  ],
+  "aggregates": [
+    "Order"
+  ],
+  "events": [
+    "InvoicePaid"
+  ],
+  "patterns": []
+}

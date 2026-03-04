@@ -12,6 +12,8 @@ from .mapper_task import build_mapper_task
 from .shared_types_task import build_shared_types_task
 from .audit_task import build_audit_task
 from .systemic_fix_task import build_systemic_fix_task
+from .dependency_graph_task import build_dependency_graph_task
+from .type_registry_task import build_type_registry_task    
 
 __all__ = [
     "build_domain_model_task",
@@ -26,5 +28,7 @@ __all__ = [
     "build_mapper_task",
     "build_shared_types_task",
     "build_audit_task",
-    "build_systemic_fix_task"
+    "build_systemic_fix_task",
+    "build_dependency_graph_task",
+    "build_type_registry_task"
 ]

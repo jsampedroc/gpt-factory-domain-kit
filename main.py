@@ -14,6 +14,282 @@ from ai.pipeline.task_executor import TaskExecutor
 from ai.utils.logging_helper import Tee
 from ai.validators.layer_contracts import LayerContracts
 from ai.domain.semantic_type_detector import detect_semantic_types
+from ai.graph.task_graph_builder import TaskGraphBuilder
+import ast
+from collections import defaultdict
+from ai.knowledge.domain_memory import DomainMemory
+
+
+# ------------------ Agents ------------------
+
+class ProjectPlannerAgent:
+    """
+    High-level planning agent that can pre-structure the idea before
+    the domain modeling phase. This mimics the planning step used in
+    systems like Devin / Manus.
+    """
+
+    def run(self, factory):
+        try:
+            plan = factory.executor.run_task(
+                "project_planner",
+                idea=factory.idea,
+                base_package=factory.base_package
+            )
+
+            if isinstance(plan, str):
+                return json.loads(plan)
+
+            return plan
+
+        except Exception:
+            # Planner is optional — fallback to raw idea
+            return {"idea": factory.idea}
+
+class DomainAgent:
+    def run(self, factory):
+        raw = factory.executor.run_task(
+            "model_domain",
+            idea=factory.idea,
+            base_package=factory.base_package,
+        )
+        domain_model = json.loads(raw)
+        return domain_model
+
+
+class SemanticAgent:
+    def run(self, factory, domain_model):
+        return detect_semantic_types(domain_model)
+
+
+
+class ArchitectureReasoningAgent:
+    """
+    Decides the architecture style (hexagonal, modular_monolith, simple)
+    based on the detected domain complexity.
+    """
+
+    def run(self, factory, domain_model):
+
+        dm = domain_model.get("domain_model", domain_model)
+
+        entity_count = len(dm.get("entities", []))
+        aggregates = len(dm.get("aggregates", []))
+
+        if aggregates > 3:
+            style = "hexagonal"
+        elif entity_count > 12:
+            style = "modular_monolith"
+        else:
+            style = "simple"
+
+        return {
+            "architecture_style": style
+        }
+
+class ArchitectureAgent:
+    def run(self, factory, domain_model):
+        return {
+            "file_inventory": factory.generate_inventory(domain_model)
+        }
+
+
+class CodeGenerationAgent:
+    def run(self, factory, inventory):
+        total = len(inventory)
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = []
+
+            for i, item in enumerate(inventory, 1):
+                futures.append(
+                    pool.submit(
+                        factory._generate_single_file,
+                        item,
+                        i,
+                        total
+                    )
+                )
+
+            for future in as_completed(futures):
+                future.result()
+
+
+class CompileAgent:
+    def run(self, factory):
+        success, output = factory._compile_project()
+        return success, output
+
+
+class CompileFixAgent:
+    def run(self, factory, compile_output):
+        fixed = factory.executor.run_task(
+            "fix_compile_error",
+            error_log=compile_output,
+            base_package=factory.base_package
+        )
+        return fixed
+
+
+
+# ------------------ Import Dependency Analyzer ------------------
+
+class ImportDependencyAnalyzer:
+    """
+    Reads generated Java files and detects dependencies based on `import` statements.
+    This improves ordering for recompilation cycles (similar to Devin-style dependency graphs).
+    """
+
+    IMPORT_RE = re.compile(r"import\s+([a-zA-Z0-9_.]+);")
+
+    def build_graph(self, factory, inventory):
+
+        nodes = []
+        edges = defaultdict(set)
+
+        for item in inventory:
+            nodes.append(item["path"])
+
+        for item in inventory:
+            path = item["path"]
+            file_path = factory.resolve_output_path(path)
+
+            if not file_path.exists():
+                continue
+
+            try:
+                content = file_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            imports = self.IMPORT_RE.findall(content)
+
+            for imp in imports:
+                # convert import package to potential path
+                rel = imp.replace(factory.base_package + ".", "")
+                rel = rel.replace(".", "/") + ".java"
+
+                for node in nodes:
+                    if node.endswith(rel):
+                        edges[path].add(node)
+
+        return nodes, edges
+
+# ------------------ Orchestrator ------------------
+
+class FactoryOrchestrator:
+
+    def __init__(self, factory):
+        self.factory = factory
+        self.project_planner = ProjectPlannerAgent()
+        self.domain_agent = DomainAgent()
+        self.semantic_agent = SemanticAgent()
+        self.architecture_reasoning_agent = ArchitectureReasoningAgent()
+        self.architecture_agent = ArchitectureAgent()
+        self.codegen_agent = CodeGenerationAgent()
+        self.compile_agent = CompileAgent()
+        self.compile_fix_agent = CompileFixAgent()
+        self.task_graph_builder = TaskGraphBuilder()
+        self.import_dependency_analyzer = ImportDependencyAnalyzer()
+
+    def run(self):
+
+        f = self.factory
+
+        f.log("🧠 Orchestrator starting")
+        # ---- BOOTSTRAP (project skeleton) ----
+        f._bootstrap_pom()
+        f._bootstrap_domain_kernel()
+
+        if StateManager.load_specs(f.spec_file, f.state):
+            f.log("📦 Loaded cached domain model and architecture")
+        else:
+
+            # ---- PROJECT PLANNING PHASE ----
+            plan = self.project_planner.run(f)
+            if isinstance(plan, dict) and plan.get("idea"):
+                f.idea = plan["idea"]
+
+            domain_model = self.domain_agent.run(f)
+            domain_model = self.semantic_agent.run(f, domain_model)
+
+            # --- domain enrichment ---
+            domain_model = f.enrich_domain(domain_model)
+
+            # --- domain learning ---
+            f.learn_domain(domain_model)
+
+            dm = domain_model.get("domain_model", domain_model)
+
+            f.log(
+                f"🧠 Semantic enrichment applied "
+                f"(value_objects={len(dm.get('value_objects', []))}, "
+                f"entities={len(dm.get('entities', []))})"
+            )
+
+            architecture_style = self.architecture_reasoning_agent.run(f, domain_model)
+
+            f.log(f"🏗 Architecture style selected: {architecture_style['architecture_style']}")
+
+            architecture = self.architecture_agent.run(f, domain_model)
+
+            # ---- TASK GRAPH BUILDER (observability) ----
+            task_graph = self.task_graph_builder.build(architecture)
+            f.log(f"🧩 Task graph built ({len(task_graph)} tasks)")
+
+            # ---- DEPENDENCY GRAPH ORDERING ----
+            from ai.graph.dependency_graph_builder import DependencyGraphBuilder
+
+            graph = DependencyGraphBuilder()
+
+            ordered_inventory = graph.order_inventory(architecture)
+
+            architecture["file_inventory"] = ordered_inventory
+
+            f.log(f"📦 Dependency ordering applied ({len(ordered_inventory)} files)")
+            
+
+            f.state.domain_model = domain_model
+            f.state.architecture = architecture
+
+            StateManager.save_specs(
+                f.spec_file,
+                f.state.domain_model,
+                f.state.architecture,
+                []
+            )
+
+        inventory = f.state.architecture["file_inventory"]
+
+        # ---- CODE GENERATION AGENTS ----
+        f.log("⚙️ Starting parallel code generation")
+        self.codegen_agent.run(f, inventory)
+
+        f.log("🚀 Code generation finished")
+
+        # ---- IMPORT DEPENDENCY ANALYSIS (post-generation) ----
+        try:
+            nodes, edges = self.import_dependency_analyzer.build_graph(f, inventory)
+            f.log(f"🔎 Import dependency scan completed ({len(edges)} relations detected)")
+        except Exception as e:
+            f.log(f"⚠️ Import dependency scan skipped: {e}")
+
+        success, compile_output = self.compile_agent.run(f)
+
+        if not success:
+            f.log("🧠 Attempting automatic compile fix...")
+            fixed = self.compile_fix_agent.run(f, compile_output)
+
+            if fixed:
+                f.log("🔧 Compile fix attempt applied")
+                success, _ = self.compile_agent.run(f)
+
+        if success:
+            f.log("✨ PROJECT GENERATED AND VERIFIED")
+        else:
+            f.log("⚠️ Project generated but compilation still failing")
+
+        f.log("🏁 Orchestrator finished")
 
 
 # ------------------ Pipeline State ------------------
@@ -29,6 +305,9 @@ class PipelineState:
 
 # ------------------ Software Factory ------------------
 class SoftwareFactory:
+
+
+
     def __init__(self, idea: str):
         load_dotenv()
         self.idea = idea
@@ -57,6 +336,11 @@ class SoftwareFactory:
 
         contracts_path = Path("config/layer_contracts.yaml")
         self.contracts = LayerContracts.load(contracts_path) if contracts_path.exists() else None
+        # --- Domain learning memory ---
+        try:
+            self.domain_memory = DomainMemory()
+        except Exception:
+            self.domain_memory = None
 
     # ------------------------------------------------
     def _compile_project(self):
@@ -468,6 +752,45 @@ class SoftwareFactory:
         self.save_to_disk("domain/shared/Entity.java", entity_code, is_protected=True)
 
     # ------------------------------------------------
+
+
+    # ------------------------------------------------
+
+    # Domain enrichment hook
+    def enrich_domain(self, domain_model: dict) -> dict:
+        """
+        Hook for future domain enrichment.
+        Example uses:
+        - domain graph improvements
+        - pattern detection
+        - aggregate inference
+        """
+        return domain_model
+
+
+    # ------------------------------------------------
+    # Domain learning memory
+    def learn_domain(self, domain_model: dict):
+
+        if not getattr(self, "domain_memory", None):
+            return
+
+        try:
+            dm = domain_model.get("domain_model", domain_model)
+
+            signals = {
+                "entities": [e.get("name") for e in dm.get("entities", [])],
+                "value_objects": [v.get("name") for v in dm.get("value_objects", [])],
+                "aggregates": [a.get("aggregate") for a in dm.get("aggregates", [])],
+            }
+
+            self.domain_memory.learn(signals)
+
+        except Exception as e:
+            self.log(f"⚠️ Domain learning skipped: {e}")
+
+
+
     def _generate_single_file(self, item, index, total):
         rel_path = item["path"]
         file_name = Path(rel_path).name
@@ -533,104 +856,10 @@ class SoftwareFactory:
         self.save_to_disk(rel_path, code)
 
     # ------------------------------------------------
-    def run(self):
-        tee = Tee(self.out_dir / "execution.log")
-        sys.stdout = tee
-
-        try:
-            self.log(f"🚀 ENGINE ACTIVE: {self.project_name}")
-
-            # --- BOOTSTRAP (NO LLM) ---
-            self._bootstrap_pom()
-            self._bootstrap_domain_kernel()
-
-            # --- DOMAIN MODEL ---
-            if StateManager.load_specs(self.spec_file, self.state):
-                self.log("📦 Loaded cached domain model and architecture")
-            else:
-                # ✅ CRITICAL: pass base_package (prevents com.example + broken packages)
-                raw = self.executor.run_task(
-                    "model_domain",
-                    idea=self.idea,
-                    base_package=self.base_package,
-                )
-                self.state.domain_model = json.loads(raw)
-                self.state.domain_model = detect_semantic_types(self.state.domain_model)
-
-                # domain_model can be wrapped as {"domain_model": {...}} depending on LLM output
-                dm = self.state.domain_model.get("domain_model", self.state.domain_model)
-
-                self.log(
-                    f"🧠 Semantic enrichment applied "
-                    f"(value_objects={len(dm.get('value_objects', []))}, "
-                    f"entities={len(dm.get('entities', []))})"
-                )
-                self.state.architecture = {
-                    "file_inventory": self.generate_inventory(self.state.domain_model)
-                }
-                StateManager.save_specs(self.spec_file, self.state.domain_model, self.state.architecture, [])
-
-            inventory = self.state.architecture["file_inventory"]
-
-            # --- CODE GENERATION ---
-            total = len(inventory)
-
-            with ThreadPoolExecutor(max_workers=6) as pool:
-                futures = []
-
-                for i, item in enumerate(inventory, 1):
-                    futures.append(
-                        pool.submit(
-                            self._generate_single_file,
-                            item,
-                            i,
-                            total
-                        )
-                    )
-
-                for future in as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        self.log(f"❌ Generation error: {e}")
-
-            self.log("🚀 Code generation finished")
-
-            # ---- Compilation Agent ----
-            success, compile_output = self._compile_project()
-
-            # ---- Compilation Fix Agent ----
-            if not success:
-                self.log("🧠 Attempting automatic compile fix...")
-
-                try:
-                    fixed = self.executor.run_task(
-                        "fix_compile_error",
-                        error_log=compile_output,
-                        base_package=self.base_package
-                    )
-
-                    if fixed:
-                        self.log("🔧 Compile fix attempt applied")
-                        success, _ = self._compile_project()
-
-                except Exception as e:
-                    self.log(f"⚠️ Compile fix agent failed: {e}")
-
-            if success:
-                self.log("✨ PROJECT GENERATED AND VERIFIED")
-            else:
-                self.log("⚠️ Project generated but compilation still failing")
-
-        except Exception as e:
-            self.log(f"❌ FATAL: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            sys.stdout = sys.__stdout__
-            tee.close()
 
 
 # ------------------ Entrypoint ------------------
 if __name__ == "__main__":
-    SoftwareFactory(" ".join(sys.argv[1:])).run()
+    factory = SoftwareFactory(" ".join(sys.argv[1:]))
+    orchestrator = FactoryOrchestrator(factory)
+    orchestrator.run() 

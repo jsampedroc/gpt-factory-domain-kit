@@ -4,7 +4,10 @@
     "Money",
     "CurrencyCode",
     "MonetaryAmount",
-    "DateRange"
+    "DateRange",
+    "ContactInformation",
+    "GeoLocation",
+    "Address"
   ],
   "aggregates": [
     "Order"

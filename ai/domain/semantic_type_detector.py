@@ -32,6 +32,24 @@ PRIMITIVE_TYPES = {
     "long",
 }
 
+# ------------------------------------------------
+# Built-in language / Java types that should NOT
+# be treated as unknown domain types
+# ------------------------------------------------
+BUILTIN_TYPES = {
+    "UUID",
+    "String",
+    "Integer",
+    "Long",
+    "Double",
+    "Float",
+    "BigDecimal",
+    "Boolean",
+    "LocalDate",
+    "LocalDateTime",
+    "Instant",
+}
+
 
 # ------------------------------------------------
 # ValueObject registry
@@ -154,7 +172,8 @@ def _normalize_type(t):
 
 
 def _is_upgradeable_type(t):
-    return _normalize_type(t) in PRIMITIVE_TYPES
+    nt = _normalize_type(t)
+    return nt in PRIMITIVE_TYPES
 
 
 # ------------------------------------------------
@@ -515,7 +534,16 @@ def detect_semantic_types(domain_model):
             })
 
     if aggregate_behaviors:
-        dm["aggregate_behaviors"] = aggregate_behaviors
+        # Remove duplicates while preserving order
+        seen = set()
+        unique = []
+        for b in aggregate_behaviors:
+            key = (b.get("aggregate"), b.get("behavior"))
+            if key not in seen:
+                seen.add(key)
+                unique.append(b)
+
+        dm["aggregate_behaviors"] = unique
 
     # ------------------------------------------------
     # Invariant Detection (Domain Validation Rules)
@@ -595,7 +623,8 @@ def detect_semantic_types(domain_model):
         for field in entity.get("fields", []):
             ftype = field.get("type")
 
-            if ftype in PRIMITIVE_TYPES:
+            # Skip primitive and built‑in types
+            if _normalize_type(ftype) in PRIMITIVE_TYPES or ftype in BUILTIN_TYPES:
                 continue
 
             if ftype not in entity_names and ftype not in existing_vos:
@@ -636,7 +665,37 @@ def detect_semantic_types(domain_model):
 
     dm["architecture_plan"] = architecture_plan
 
-    dm["value_objects"] = list(existing_vos.values())
+    # ensure deterministic order
+    dm["value_objects"] = sorted(
+        existing_vos.values(),
+        key=lambda v: v.get("name", "")
+    )
+
+    # ------------------------------------------------
+    # Learning Signal Extraction (Self‑Improving Factory)
+    # ------------------------------------------------
+    learning_signals = {
+        "entities": [e.get("name") for e in entities],
+        "value_objects": list(existing_vos.keys()),
+        "aggregates": [
+            (a.get("aggregate"), a.get("member"))
+            for a in dm.get("aggregates", [])
+        ],
+        "events": [
+            e.get("event") for e in dm.get("domain_events", [])
+        ],
+        "contexts": [
+            c.get("name") for c in dm.get("bounded_contexts", [])
+        ] if dm.get("bounded_contexts") else [],
+        "invariants": [
+            (i.get("entity"), i.get("rule"))
+            for i in dm.get("invariants", [])
+            if isinstance(i, dict)
+        ] if dm.get("invariants") else [],
+    }
+
+    # Attach signals so the knowledge cache can learn from them
+    dm["learning_signals"] = learning_signals
 
     # Update domain knowledge cache so the factory learns from this model
     update_knowledge(dm)

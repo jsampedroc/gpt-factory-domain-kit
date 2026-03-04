@@ -1,5 +1,4 @@
 # ai/pipeline/task_executor.py
-import os
 import sys
 import time
 
@@ -10,6 +9,40 @@ import ai.agents as agents
 
 
 class TaskExecutor:
+
+    TASK_MAP = {
+        # DOMAIN
+        "model_domain": lambda tasks, **k: tasks.build_domain_model_task(**k),
+        "identify_shared_types": lambda tasks, **k: tasks.build_shared_types_task(**k),
+
+        # NEW PIPELINE LAYERS
+        "type_registry": lambda tasks, **k: tasks.build_type_registry_task(**k),
+        "dependency_graph": lambda tasks, **k: tasks.build_dependency_graph_task(**k),
+
+        # ARCHITECTURE
+        "create_inventory": lambda tasks, **k: tasks.build_architecture_task(**k),
+
+        # CODE GENERATION
+        "write_code": lambda tasks, **k: tasks.build_code_generation_task(**k),
+        "write_mapper": lambda tasks, **k: tasks.build_mapper_task(**k),
+        "write_tests": lambda tasks, **k: tasks.build_write_tests_task(**k),
+
+        # QUALITY
+        "audit_code": lambda tasks, **k: tasks.build_audit_task(**k),
+        "heal_code": lambda tasks, **k: tasks.build_heal_code_task(**k),
+        # COMPILE FIX
+        "fix_compile_error": lambda tasks, **k: tasks.build_compile_fix_task(**k),
+
+        # DEBUG
+        "project_debug": lambda tasks, **k: tasks.build_project_debug_task(**k),
+        "generate_systemic_fix": lambda tasks, **k: tasks.build_systemic_fix_task(**k),
+
+        # BOOTSTRAP
+        "create_skeleton": lambda tasks, **k: tasks.build_create_skeleton_task(**k),
+
+        # ARBITRATION
+        "arbitration": lambda tasks, **k: tasks.build_arbitration_task(**k),
+    }
 
     def __init__(self):
         """
@@ -28,38 +61,7 @@ class TaskExecutor:
         # TASK REGISTRY
         # -------------------------------------------------------
 
-        task_map = {
-
-            # DOMAIN
-            "model_domain": tasks.build_domain_model_task,
-            "identify_shared_types": tasks.build_shared_types_task,
-
-            # NEW PIPELINE LAYERS
-            "type_registry": tasks.build_type_registry_task,
-            "dependency_graph": tasks.build_dependency_graph_task,
-
-            # ARCHITECTURE
-            "create_inventory": tasks.build_architecture_task,
-
-            # CODE GENERATION
-            "write_code": tasks.build_code_generation_task,
-            "write_mapper": tasks.build_mapper_task,
-            "write_tests": tasks.build_write_tests_task,
-
-            # QUALITY
-            "audit_code": tasks.build_audit_task,
-            "heal_code": tasks.build_heal_code_task,
-
-            # DEBUG
-            "project_debug": tasks.build_project_debug_task,
-            "generate_systemic_fix": tasks.build_systemic_fix_task,
-
-            # BOOTSTRAP
-            "create_skeleton": tasks.build_create_skeleton_task,
-
-            # ARBITRATION
-            "arbitration": tasks.build_arbitration_task,
-        }
+        task_map = self.TASK_MAP
 
         if task_key not in task_map:
             raise ValueError(f"❌ Task '{task_key}' is not mapped in TaskExecutor.")
@@ -79,7 +81,7 @@ class TaskExecutor:
         # BUILD TASK
         # -------------------------------------------------------
 
-        task_def = task_map[task_key](**task_args)
+        task_def = task_map[task_key](tasks, **task_args)
 
         # -------------------------------------------------------
         # AGENT RESOLUTION
@@ -132,6 +134,7 @@ class TaskExecutor:
         # -------------------------------------------------------
 
         max_retries = 3
+        base_wait = 10
 
         for attempt in range(max_retries):
 
@@ -162,7 +165,7 @@ class TaskExecutor:
 
                 if "rate limit" in err or "429" in err or "quota" in err:
 
-                    wait = 30 * (attempt + 1)
+                    wait = base_wait * (attempt + 1)
 
                     print(
                         f"\n⏳ API LIMIT ({provider}). "
@@ -173,10 +176,10 @@ class TaskExecutor:
 
                     continue
 
-                print(f"\n🚫 CRITICAL API ERROR ({provider}): {e}")
+                raise RuntimeError(
+                    f"Critical API error from {provider}: {e}"
+                )
 
-                sys.exit(1)
-
-        print(f"❌ Task '{task_key}' failed after {max_retries} attempts.")
-
-        sys.exit(1)
+        raise RuntimeError(
+            f"Task '{task_key}' failed after {max_retries} attempts."
+        )

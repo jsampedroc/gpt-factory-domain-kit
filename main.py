@@ -5,6 +5,7 @@ import yaml
 import re
 import subprocess
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -73,7 +74,7 @@ class SoftwareFactory:
             self.log("🔧 Running Maven compilation...")
 
             result = subprocess.run(
-                ["mvn", "-q", "compile"],
+                ["mvn", "-q", "-DskipTests", "package"],
                 cwd=backend_path,
                 capture_output=True,
                 text=True
@@ -467,6 +468,71 @@ class SoftwareFactory:
         self.save_to_disk("domain/shared/Entity.java", entity_code, is_protected=True)
 
     # ------------------------------------------------
+    def _generate_single_file(self, item, index, total):
+        rel_path = item["path"]
+        file_name = Path(rel_path).name
+
+        output_path = self.resolve_output_path(rel_path)
+
+        if output_path.exists():
+            self.log(f"⏭️ Skipping existing file {file_name}")
+            return
+
+        self.log(f"[{index}/{total}] Fabricating {file_name}")
+
+        _, golden_rel, strict = self.resolve_generation_mode(item)
+
+        expected_pkg = self._expected_package_for(rel_path)
+
+        mandatory_header = (
+            "MANDATORY (NON-NEGOTIABLE):\n"
+            f"- The FIRST non-comment line MUST be exactly: package {expected_pkg};\n"
+            "- DO NOT use com.example anywhere.\n"
+            "- DO NOT change the package even if golden sample shows something else.\n\n"
+        )
+
+        golden = ""
+        if golden_rel:
+            p = Path("config/golden_samples") / golden_rel
+            if p.exists():
+                golden_body = self._strip_package_line(p.read_text(encoding="utf-8"))
+                golden = (
+                    "\n=== GOLDEN SAMPLE (FOLLOW EXACTLY, CHANGE NAMES ONLY) ===\n"
+                    + golden_body
+                    + "\n=== END GOLDEN SAMPLE ===\n"
+                )
+
+        prompt = mandatory_header + strict + "\n" + golden
+
+        code = self.executor.run_task(
+            "write_code",
+            path=rel_path,
+            desc=prompt,
+            base_package=self.base_package,
+            context_data=json.dumps({
+                "name": item["entity"],
+                "kind": item["description"],
+                "fields": item.get("fields", []),
+                "values": item.get("values", []),
+                "path": rel_path,
+                "base_package": self.base_package,
+                "expected_package": expected_pkg,
+            }),
+        )
+
+        from ai.validators.code_verifier import verify_java_code
+        from ai.validators.code_auto_fix import auto_fix_java_code
+
+        verification = verify_java_code(code)
+
+        if not verification["valid"]:
+            self.log(f"⚠️ Verification issues in {file_name}: {verification['issues']}")
+            code = auto_fix_java_code(code, verification["issues"])
+            self.log("🔧 Auto-fix applied")
+
+        self.save_to_disk(rel_path, code)
+
+    # ------------------------------------------------
     def run(self):
         tee = Tee(self.out_dir / "execution.log")
         sys.stdout = tee
@@ -479,7 +545,9 @@ class SoftwareFactory:
             self._bootstrap_domain_kernel()
 
             # --- DOMAIN MODEL ---
-            if not StateManager.load_specs(self.spec_file, self.state):
+            if StateManager.load_specs(self.spec_file, self.state):
+                self.log("📦 Loaded cached domain model and architecture")
+            else:
                 # ✅ CRITICAL: pass base_package (prevents com.example + broken packages)
                 raw = self.executor.run_task(
                     "model_domain",
@@ -505,70 +573,26 @@ class SoftwareFactory:
             inventory = self.state.architecture["file_inventory"]
 
             # --- CODE GENERATION ---
-            for i, item in enumerate(inventory, 1):
-                rel_path = item["path"]
-                file_name = Path(rel_path).name
-                self.log(f"[{i}/{len(inventory)}] Fabricating {file_name}")
+            total = len(inventory)
 
-                _, golden_rel, strict = self.resolve_generation_mode(item)
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                futures = []
 
-                # Enforce package from engine (LLM must comply)
-                expected_pkg = self._expected_package_for(rel_path)
-                mandatory_header = (
-                    "MANDATORY (NON-NEGOTIABLE):\n"
-                    f"- The FIRST non-comment line MUST be exactly: package {expected_pkg};\n"
-                    "- DO NOT use com.example anywhere.\n"
-                    "- DO NOT change the package even if golden sample shows something else.\n\n"
-                )
-
-                golden = ""
-                if golden_rel:
-                    p = Path("config/golden_samples") / golden_rel
-                    if p.exists():
-                        # Strip package from golden sample to avoid misleading the model
-                        golden_body = self._strip_package_line(p.read_text(encoding="utf-8"))
-                        golden = (
-                            "\n=== GOLDEN SAMPLE (FOLLOW EXACTLY, CHANGE NAMES ONLY) ===\n"
-                            + golden_body
-                            + "\n=== END GOLDEN SAMPLE ===\n"
+                for i, item in enumerate(inventory, 1):
+                    futures.append(
+                        pool.submit(
+                            self._generate_single_file,
+                            item,
+                            i,
+                            total
                         )
+                    )
 
-                prompt = mandatory_header + strict + "\n" + golden
-                
-
-                # ✅ CRITICAL: always pass base_package to write_code
-                code = self.executor.run_task(
-                    "write_code",
-                    path=rel_path,
-                    desc=prompt,
-                    base_package=self.base_package,
-                    context_data=json.dumps({
-                        "name": item["entity"],
-                        "kind": item["description"],
-                        "fields": item.get("fields", []),
-                        "values": item.get("values", []),
-                        "path": rel_path,
-                        "base_package": self.base_package,
-                        "expected_package": expected_pkg,
-                    }),
-                )
-
-                # ---------------- VERIFY CODE ----------------
-                from ai.validators.code_verifier import verify_java_code
-                from ai.validators.code_auto_fix import auto_fix_java_code
-
-                verification = verify_java_code(code)
-
-                if not verification["valid"]:
-                    self.log(f"⚠️ Verification issues in {file_name}: {verification['issues']}")
-
-                    code = auto_fix_java_code(code, verification["issues"])
-                    self.log(f"🔧 Auto-fix applied")
-
-                # ---------------- SAVE ----------------
-                self.save_to_disk(rel_path, code)
-
-
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        self.log(f"❌ Generation error: {e}")
 
             self.log("🚀 Code generation finished")
 

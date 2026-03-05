@@ -20,164 +20,50 @@ from collections import defaultdict
 from ai.knowledge.domain_memory import DomainMemory
 from ai.graph.code_dependency_graph import CodeDependencyGraph
 from ai.agents.refactor_agent import RefactorAgent
-from ai.agents.runtime_feedback_agent import RuntimeFeedbackAgent  # TODO: implement this module
 from ai.agents.evolution_agent import EvolutionAgent
 
+try:
+    from ai.agents.runtime_feedback_agent import RuntimeFeedbackAgent
+except Exception:
+    RuntimeFeedbackAgent = None
 
-# ------------------ Agents ------------------
+from ai.agents.project_planner_agent import ProjectPlannerAgent
+from ai.agents.domain_agent import DomainAgent
+from ai.agents.semantic_agent import SemanticAgent
+from ai.agents.architecture_reasoning_agent import ArchitectureReasoningAgent
+from ai.agents.architecture_agent import ArchitectureAgent
+from ai.agents.code_generation_agent import CodeGenerationAgent
+from ai.agents.compile_agent import CompileAgent
+from ai.agents.compile_fix_agent import CompileFixAgent
+from ai.agents.import_dependency_analyzer import ImportDependencyAnalyzer
 
-class ProjectPlannerAgent:
-    """
-    High-level planning agent that can pre-structure the idea before
-    the domain modeling phase. This mimics the planning step used in
-    systems like Devin / Manus.
-    """
+# Optional agents (present in the refactored agents package)
+try:
+    from ai.agents.agent_registry import AgentRegistry
+except Exception:
+    AgentRegistry = None
 
-    def run(self, factory):
-        try:
-            plan = factory.executor.run_task(
-                "project_planner",
-                idea=factory.idea,
-                base_package=factory.base_package
-            )
+try:
+    from ai.agents.semantic_compile_fix_agent import SemanticCompileFixAgent
+except Exception:
+    SemanticCompileFixAgent = None
 
-            if isinstance(plan, str):
-                return json.loads(plan)
+try:
+    from ai.agents.java_llm_repair_agent import JavaLLMRepairAgent
+except Exception:
+    JavaLLMRepairAgent = None
 
-            return plan
+try:
+    from ai.agents.inventory_consistency_agent import InventoryConsistencyAgent
+except Exception:
+    InventoryConsistencyAgent = None
 
-        except Exception:
-            # Planner is optional — fallback to raw idea
-            return {"idea": factory.idea}
-
-class DomainAgent:
-    def run(self, factory):
-        raw = factory.executor.run_task(
-            "model_domain",
-            idea=factory.idea,
-            base_package=factory.base_package,
-        )
-        domain_model = json.loads(raw)
-        return domain_model
-
-
-class SemanticAgent:
-    def run(self, factory, domain_model):
-        return detect_semantic_types(domain_model)
-
+try:
+    from ai.agents.inventory_validator_agent import InventoryValidatorAgent
+except Exception:
+    InventoryValidatorAgent = None
 
 
-class ArchitectureReasoningAgent:
-    """
-    Decides the architecture style (hexagonal, modular_monolith, simple)
-    based on the detected domain complexity.
-    """
-
-    def run(self, factory, domain_model):
-
-        dm = domain_model.get("domain_model", domain_model)
-
-        entity_count = len(dm.get("entities", []))
-        aggregates = len(dm.get("aggregates", []))
-
-        if aggregates > 3:
-            style = "hexagonal"
-        elif entity_count > 12:
-            style = "modular_monolith"
-        else:
-            style = "simple"
-
-        return {
-            "architecture_style": style
-        }
-
-class ArchitectureAgent:
-    def run(self, factory, domain_model):
-        return {
-            "file_inventory": factory.generate_inventory(domain_model)
-        }
-
-
-class CodeGenerationAgent:
-    def run(self, factory, inventory):
-        total = len(inventory)
-
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            futures = []
-
-            for i, item in enumerate(inventory, 1):
-                futures.append(
-                    pool.submit(
-                        factory._generate_single_file,
-                        item,
-                        i,
-                        total
-                    )
-                )
-
-            for future in as_completed(futures):
-                future.result()
-
-
-class CompileAgent:
-    def run(self, factory):
-        success, output = factory._compile_project()
-        return success, output
-
-
-class CompileFixAgent:
-    def run(self, factory, compile_output):
-        fixed = factory.executor.run_task(
-            "fix_compile_error",
-            error_log=compile_output,
-            base_package=factory.base_package
-        )
-        return fixed
-
-
-
-# ------------------ Import Dependency Analyzer ------------------
-
-class ImportDependencyAnalyzer:
-    """
-    Reads generated Java files and detects dependencies based on `import` statements.
-    This improves ordering for recompilation cycles (similar to Devin-style dependency graphs).
-    """
-
-    IMPORT_RE = re.compile(r"import\s+([a-zA-Z0-9_.]+);")
-
-    def build_graph(self, factory, inventory):
-
-        nodes = []
-        edges = defaultdict(set)
-
-        for item in inventory:
-            nodes.append(item["path"])
-
-        for item in inventory:
-            path = item["path"]
-            file_path = factory.resolve_output_path(path)
-
-            if not file_path.exists():
-                continue
-
-            try:
-                content = file_path.read_text(encoding="utf-8")
-            except Exception:
-                continue
-
-            imports = self.IMPORT_RE.findall(content)
-
-            for imp in imports:
-                # convert import package to potential path
-                rel = imp.replace(factory.base_package + ".", "")
-                rel = rel.replace(".", "/") + ".java"
-
-                for target in nodes:
-                    if target.endswith(rel):
-                        edges[path].add(target)
-
-        return nodes, edges
 
 # ------------------ Orchestrator ------------------
 
@@ -185,19 +71,59 @@ class FactoryOrchestrator:
 
     def __init__(self, factory):
         self.factory = factory
-        self.project_planner = ProjectPlannerAgent()
-        self.domain_agent = DomainAgent()
-        self.semantic_agent = SemanticAgent()
-        self.architecture_reasoning_agent = ArchitectureReasoningAgent()
-        self.architecture_agent = ArchitectureAgent()
-        self.codegen_agent = CodeGenerationAgent()
-        self.compile_agent = CompileAgent()
-        self.compile_fix_agent = CompileFixAgent()
+
+        # Prefer dynamic registry if available (Devin/Manus style)
+        self.agents = None
+        if AgentRegistry is not None:
+            try:
+                self.agents = AgentRegistry.discover()
+            except Exception:
+                self.agents = None
+
+        def _get(name: str, ctor):
+            # Prefer agents discovered by AgentRegistry
+            if isinstance(self.agents, dict) and name in self.agents:
+                return self.agents[name]
+
+            # Try to instantiate with factory (most advanced agents need context)
+            try:
+                return ctor(self.factory)
+            except TypeError:
+                pass
+
+            # Try with project/output root (compile/test agents typically need this)
+            try:
+                return ctor(self.factory.output_root)
+            except TypeError:
+                pass
+
+            # Fallback: no-arg constructor
+            return ctor()
+
+        # Core pipeline agents
+        self.project_planner = _get("project_planner", ProjectPlannerAgent)
+        self.domain_agent = _get("domain", DomainAgent)
+        self.semantic_agent = _get("semantic", SemanticAgent)
+        self.architecture_reasoning_agent = _get("architecture_reasoning", ArchitectureReasoningAgent)
+        self.architecture_agent = _get("architecture", ArchitectureAgent)
+        self.codegen_agent = _get("code_generation", CodeGenerationAgent)
+        self.compile_agent = _get("compile", CompileAgent)
+        self.compile_fix_agent = _get("compile_fix", CompileFixAgent)
+
+        # Optional repair/enrichment agents
+        self.semantic_compile_fix_agent = _get("semantic_compile_fix", SemanticCompileFixAgent) if SemanticCompileFixAgent else None
+        self.java_llm_repair_agent = _get("java_llm_repair", JavaLLMRepairAgent) if JavaLLMRepairAgent else None
+        self.inventory_consistency_agent = _get("inventory_consistency", InventoryConsistencyAgent) if InventoryConsistencyAgent else None
+        self.inventory_validator_agent = _get("inventory_validator", InventoryValidatorAgent) if InventoryValidatorAgent else None
+
+        # Tooling / observability
         self.task_graph_builder = TaskGraphBuilder()
         self.import_dependency_analyzer = ImportDependencyAnalyzer()
         self.code_dependency_graph = CodeDependencyGraph()
+
+        # Post-success autonomous improvement loop
         self.refactor_agent = RefactorAgent()
-        self.runtime_feedback_agent = RuntimeFeedbackAgent()  # TODO: implement this module
+        self.runtime_feedback_agent = RuntimeFeedbackAgent() if RuntimeFeedbackAgent else None
         self.evolution_agent = EvolutionAgent()
 
     def run(self):
@@ -255,7 +181,22 @@ class FactoryOrchestrator:
             architecture["file_inventory"] = ordered_inventory
 
             f.log(f"📦 Dependency ordering applied ({len(ordered_inventory)} files)")
-            
+
+            # ---- INVENTORY VALIDATION / CONSISTENCY ----
+            try:
+                if self.inventory_validator_agent:
+                    ordered_inventory = self.inventory_validator_agent.run(f, ordered_inventory)
+                    architecture["file_inventory"] = ordered_inventory
+                    f.log("✅ InventoryValidatorAgent applied")
+            except Exception as e:
+                f.log(f"⚠️ InventoryValidatorAgent skipped: {e}")
+
+            try:
+                if self.inventory_consistency_agent:
+                    domain_model = self.inventory_consistency_agent.run(f, domain_model)
+                    f.log("✅ InventoryConsistencyAgent applied")
+            except Exception as e:
+                f.log(f"⚠️ InventoryConsistencyAgent skipped: {e}")
 
             f.state.domain_model = domain_model
             f.state.architecture = architecture
@@ -275,6 +216,14 @@ class FactoryOrchestrator:
 
         f.log("🚀 Code generation finished")
 
+        # ---- LLM JAVA REPAIR PASS (optional) ----
+        try:
+            if self.java_llm_repair_agent:
+                self.java_llm_repair_agent.run(f)
+                f.log("🧠 Java LLM repair pass completed")
+        except Exception as e:
+            f.log(f"⚠️ Java LLM repair skipped: {e}")
+
         # ---- CODE DEPENDENCY ANALYSIS (post-generation) ----
         try:
             nodes, edges = self.import_dependency_analyzer.build_graph(f, inventory)
@@ -282,8 +231,25 @@ class FactoryOrchestrator:
         except Exception as e:
             f.log(f"⚠️ Import dependency scan skipped: {e}")
 
-        # ---- COMPILE AND FIX LOOP ----
+        # ---- COMPILE AND FIX LOOP (self-healing) ----
         MAX_FIX_ATTEMPTS = 5
+        success = False
+        compile_output = ""
+
+        def _regenerate_paths(paths):
+            if not paths:
+                return
+            inv_by_path = {it.get("path"): it for it in inventory}
+            for p in paths:
+                item = inv_by_path.get(p)
+                if not item:
+                    continue
+                try:
+                    f._generate_single_file(item, 0, 0)
+                    f.log(f"♻️ Regenerated {p}")
+                except Exception as e:
+                    f.log(f"⚠️ Regeneration failed for {p}: {e}")
+
         for attempt in range(MAX_FIX_ATTEMPTS):
 
             success, compile_output = self.compile_agent.run(f)
@@ -293,7 +259,27 @@ class FactoryOrchestrator:
 
             f.log(f"🧠 Compile fix attempt {attempt+1}/{MAX_FIX_ATTEMPTS}")
 
-            fixed = self.compile_fix_agent.run(f, compile_output)
+            fixed = False
+
+            # 1) Try semantic compile fixer first (imports, missing types, signature mismatches, etc.)
+            if self.semantic_compile_fix_agent:
+                try:
+                    fixed = bool(self.semantic_compile_fix_agent.run(f, compile_output))
+                except Exception as e:
+                    f.log(f"⚠️ Semantic compile fix skipped: {e}")
+
+            # 2) Fallback to LLM compile fixer
+            if not fixed:
+                try:
+                    result = self.compile_fix_agent.run(f, compile_output)
+                    if isinstance(result, dict):
+                        fixed = bool(result.get("fixed", True))
+                        _regenerate_paths(result.get("regenerate", []))
+                    else:
+                        fixed = bool(result)
+                except Exception as e:
+                    f.log(f"⚠️ Compile fix failed: {e}")
+                    fixed = False
 
             if not fixed:
                 break
@@ -309,18 +295,21 @@ class FactoryOrchestrator:
                 f.log(f"⚠️ Refactor phase skipped: {e}")
 
             # ---- RUNTIME FEEDBACK PHASE ----
-            try:
-                runtime_report = self.runtime_feedback_agent.run(f)
+            if self.runtime_feedback_agent:
+                try:
+                    runtime_report = self.runtime_feedback_agent.run(f)
 
-                evolve = self.evolution_agent.run(f, runtime_report)
+                    evolve = self.evolution_agent.run(f, runtime_report)
 
-                if evolve:
-                    f.log("🔁 Evolution cycle triggered")
+                    if evolve:
+                        f.log("🔁 Evolution cycle triggered")
 
-                f.log("📊 Runtime feedback analysis completed")
+                    f.log("📊 Runtime feedback analysis completed")
 
-            except Exception as e:
-                f.log(f"⚠️ Runtime feedback skipped: {e}")
+                except Exception as e:
+                    f.log(f"⚠️ Runtime feedback skipped: {e}")
+            else:
+                f.log("⚠️ Runtime feedback agent not available; skipping")
 
         else:
             f.log("⚠️ Project generated but compilation still failing")

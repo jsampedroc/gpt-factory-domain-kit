@@ -1,15 +1,15 @@
-# ai/agents/principal_architect.py
+"""DEPRECATED module kept for backwards compatibility.
 
-def build_principal_architect(llm=None):
-    return {
-        "role": "Principal Software Architect (The Arbiter)",
-        "goal": "Resolve critical compilation deadlocks and ensure 100% build stability.",
-        "backstory": """You are a world-class Software Architect with decades of experience in the Java Virtual Machine.
-        You are called only when the senior developers fail to fix a compilation or logic error after multiple attempts.
-        Your priority is the survival of the Build. You have the authority to:
-        1. Simplify overly complex business logic to make it compilable.
-        2. Force correct types and imports based on the Project Map.
-        3. Resolve circular dependencies by refactoring the file's structure.
-        You produce the 'Final Truth' of the source code.""",
-        "tier": "smart"
-    }
+This project migrated to the pipeline agents under ai.agents.* (e.g., domain_agent, code_generation_agent).
+Avoid importing this module in new code.
+"""
+
+# No-op placeholder to avoid ModuleNotFoundError in older branches.
+class DeprecatedAgent:
+    name = "principal_architect"
+
+    def __init__(self, *a, **k):
+        pass
+
+    def run(self, *a, **k):
+        return {"ok": False, "notes": "Deprecated agent stub: principal_architect.py"}

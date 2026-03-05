@@ -1,10 +1,15 @@
-from ai.domain.domain_knowledge_engine import DomainKnowledgeEngine
+"""DEPRECATED module kept for backwards compatibility.
 
+This project migrated to the pipeline agents under ai.agents.* (e.g., domain_agent, code_generation_agent).
+Avoid importing this module in new code.
+"""
 
-class KnowledgeAgent:
+# No-op placeholder to avoid ModuleNotFoundError in older branches.
+class DeprecatedAgent:
+    name = "knowledge_agent"
 
-    def __init__(self):
-        self.engine = DomainKnowledgeEngine()
+    def __init__(self, *a, **k):
+        pass
 
-    def run(self, idea, domain_model):
-        return self.engine.enrich(idea, domain_model)
+    def run(self, *a, **k):
+        return {"ok": False, "notes": "Deprecated agent stub: knowledge_agent.py"}

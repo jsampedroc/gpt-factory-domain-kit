@@ -1,4 +1,8 @@
-# ------------------ Import Dependency Analyzer ------------------
+# ai/agents/import_dependency_analyzer.py
+
+import re
+from collections import defaultdict
+
 
 class ImportDependencyAnalyzer:
     """

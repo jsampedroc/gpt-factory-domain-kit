@@ -1,30 +1,15 @@
-# ------------------ Enum Type Resolver Agent ------------------
-class EnumTypeResolverAgent:
-    """
-    Resolves conflicts between domain enums and Java standard enums
-    (example: DayOfWeek vs java.time.DayOfWeek).
-    Ensures domain.shared enums are consistently used in the domain model.
-    """
+"""DEPRECATED module kept for backwards compatibility.
 
-    STANDARD_ENUM_CONFLICTS = {
-        "DayOfWeek": "java.time.DayOfWeek"
-    }
+This project migrated to the pipeline agents under ai.agents.* (e.g., domain_agent, code_generation_agent).
+Avoid importing this module in new code.
+"""
 
-    def run(self, factory, domain_model):
+# No-op placeholder to avoid ModuleNotFoundError in older branches.
+class DeprecatedAgent:
+    name = "type_resolver_agent"
 
-        dm = domain_model.get("domain_model", domain_model)
+    def __init__(self, *a, **k):
+        pass
 
-        domain_enums = {e.get("name") for e in dm.get("global_enums", [])}
-
-        for entity in dm.get("entities", []):
-            for field in entity.get("fields", []):
-                t = field.get("type")
-
-                if not isinstance(t, str):
-                    continue
-
-                if t in self.STANDARD_ENUM_CONFLICTS and t in domain_enums:
-                    factory.log(f"🧠 Resolving enum conflict: {t} -> domain.shared.{t}")
-                    field["type"] = t
-
-        return domain_model
+    def run(self, *a, **k):
+        return {"ok": False, "notes": "Deprecated agent stub: type_resolver_agent.py"}

@@ -1,9 +1,15 @@
-# ai/agents/factory.py
-from ai.agents.definitions import ROLES
+"""DEPRECATED module kept for backwards compatibility.
 
-class AgentFactory:
-    @staticmethod
-    def build_agent(role_key):
-        if role_key not in ROLES:
-            raise ValueError(f"El rol {role_key} no está definido.")
-        return ROLES[role_key]
+This project migrated to the pipeline agents under ai.agents.* (e.g., domain_agent, code_generation_agent).
+Avoid importing this module in new code.
+"""
+
+# No-op placeholder to avoid ModuleNotFoundError in older branches.
+class DeprecatedAgent:
+    name = "factory"
+
+    def __init__(self, *a, **k):
+        pass
+
+    def run(self, *a, **k):
+        return {"ok": False, "notes": "Deprecated agent stub: factory.py"}

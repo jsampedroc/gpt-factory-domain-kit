@@ -1,11 +1,15 @@
-# ai/agents/software_architect.py
+"""DEPRECATED module kept for backwards compatibility.
 
-def build_software_architect(llm=None):
-    return {
-        "role": "Senior Software Architect (Hexagonal Specialist)",
-        "goal": "Design a decoupled file inventory and technical blueprint based on the Domain Kit.",
-        "backstory": """You are an elite architect specializing in Hexagonal Architecture (Ports and Adapters). 
-        You define the technical structure of the system, ensuring total separation between domain logic and infrastructure. 
-        You are responsible for the 'Project Map', defining where every Entity, Repository, and Controller belongs.""",
-        "tier": "smart"
-    }
+This project migrated to the pipeline agents under ai.agents.* (e.g., domain_agent, code_generation_agent).
+Avoid importing this module in new code.
+"""
+
+# No-op placeholder to avoid ModuleNotFoundError in older branches.
+class DeprecatedAgent:
+    name = "software_architect"
+
+    def __init__(self, *a, **k):
+        pass
+
+    def run(self, *a, **k):
+        return {"ok": False, "notes": "Deprecated agent stub: software_architect.py"}

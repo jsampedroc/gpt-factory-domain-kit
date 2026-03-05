@@ -1,15 +1,15 @@
-# ai/agents/qa_agent.py
+"""DEPRECATED module kept for backwards compatibility.
 
-def build_qa_agent(llm=None):
-    return {
-        "role": "Principal Architectural Auditor & QA",
-        "goal": "Ensure technical perfection and strict adherence to Java 17 and DDD contracts.",
-        "backstory": """You act as a human Java compiler. Your priority is consistency and build stability.
-        REJECTION CRITERIA:
-        - Use of 'extends ValueObject' (Error: must be 'implements').
-        - Use of 'ID implements ValueObject' inside generics <> (Error: must be 'extends').
-        - Use of @Builder in classes that use inheritance.
-        - Package names with uppercase or unauthorized sub-folders.
-        - Missing critical imports for Lombok or Java Time.""",
-        "tier": "smart"
-    }
+This project migrated to the pipeline agents under ai.agents.* (e.g., domain_agent, code_generation_agent).
+Avoid importing this module in new code.
+"""
+
+# No-op placeholder to avoid ModuleNotFoundError in older branches.
+class DeprecatedAgent:
+    name = "qa_agent"
+
+    def __init__(self, *a, **k):
+        pass
+
+    def run(self, *a, **k):
+        return {"ok": False, "notes": "Deprecated agent stub: qa_agent.py"}

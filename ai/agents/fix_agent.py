@@ -1,19 +1,15 @@
-class FixAgent:
+"""DEPRECATED module kept for backwards compatibility.
 
-    def __init__(self, executor, logger=None):
-        self.executor = executor
-        self.logger = logger
+This project migrated to the pipeline agents under ai.agents.* (e.g., domain_agent, code_generation_agent).
+Avoid importing this module in new code.
+"""
 
-    def fix(self, compile_result):
+# No-op placeholder to avoid ModuleNotFoundError in older branches.
+class DeprecatedAgent:
+    name = "fix_agent"
 
-        errors = compile_result["stderr"]
+    def __init__(self, *a, **k):
+        pass
 
-        if self.logger:
-            self.logger.info("🩹 FixAgent attempting automatic repair")
-
-        fix = self.executor.run_task(
-            "heal_code",
-            errors=errors
-        )
-
-        return fix
+    def run(self, *a, **k):
+        return {"ok": False, "notes": "Deprecated agent stub: fix_agent.py"}

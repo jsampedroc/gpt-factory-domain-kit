@@ -1,0 +1,20 @@
+[
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "EmergencyContact",
+      "Classroom",
+      "Teacher",
+      "TuitionPlan",
+      "Invoice"
+    ],
+    "value_objects": [
+      "Allergy",
+      "GeoLocation",
+      "ImmunizationRecord",
+      "Money"
+    ],
+    "aggregates": []
+  }
+]

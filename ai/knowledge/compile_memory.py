@@ -2,9 +2,9 @@ import json
 from pathlib import Path
 
 
-class DomainMemory:
+class CompileMemory:
 
-    FILE = Path("memory/domain_patterns.json")
+    FILE = Path("memory/compile_patterns.json")
 
     def __init__(self):
         self.FILE.parent.mkdir(exist_ok=True)
@@ -14,9 +14,14 @@ class DomainMemory:
         else:
             self.patterns = []
 
-    def record(self, pattern):
+    def record(self, error, fix):
 
-        self.patterns.append(pattern)
+        entry = {
+            "error": error,
+            "fix": fix
+        }
+
+        self.patterns.append(entry)
 
         self.FILE.write_text(
             json.dumps(self.patterns, indent=2)

@@ -3,7 +3,10 @@ import sys
 import json
 import yaml
 import re
+import os
 import subprocess
+import time
+import hashlib
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -18,10 +21,12 @@ from ai.graph.task_graph_builder import TaskGraphBuilder
 import ast
 from collections import defaultdict
 from ai.knowledge.domain_memory import DomainMemory
+from ai.knowledge.compile_memory import CompileMemory
 from ai.graph.code_dependency_graph import CodeDependencyGraph
 from ai.agents.refactor_agent import RefactorAgent
 from ai.agents.runtime_feedback_agent import RuntimeFeedbackAgent  # TODO: implement this module
 from ai.agents.evolution_agent import EvolutionAgent
+from ai.domain.domain_model_validator import validate_domain_model
 
 
 # ------------------ Agents ------------------
@@ -100,23 +105,124 @@ class ArchitectureAgent:
 
 class CodeGenerationAgent:
     def run(self, factory, inventory):
-        total = len(inventory)
+        """
+        Generates files in batches by architectural layer to improve LLM coherence.
+        Order: domain → application → infrastructure.
+        Each batch still runs in parallel internally.
+        """
 
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            futures = []
+        # --- Dependency‑aware ordering using task graph ---
+        task_graph = getattr(factory.state, "task_graph", None)
 
-            for i, item in enumerate(inventory, 1):
-                futures.append(
-                    pool.submit(
-                        factory._generate_single_file,
-                        item,
-                        i,
-                        total
-                    )
+        if task_graph and isinstance(task_graph, list):
+
+            graph = {}
+            indegree = {}
+
+            for t in task_graph:
+                if not isinstance(t, dict):
+                    continue
+
+                p = t.get("path")
+                deps = t.get("depends_on", []) or []
+
+                if not p:
+                    continue
+
+                graph[p] = set(deps)
+                indegree.setdefault(p, 0)
+
+                for d in deps:
+                    indegree.setdefault(d, 0)
+                    indegree[p] += 1
+
+            # Kahn topological sort
+            queue = [p for p, deg in indegree.items() if deg == 0]
+            ordered_paths = []
+
+            while queue:
+                node = queue.pop(0)
+                ordered_paths.append(node)
+
+                for target, deps in graph.items():
+                    if node in deps:
+                        indegree[target] -= 1
+                        deps.remove(node)
+                        if indegree[target] == 0:
+                            queue.append(target)
+
+            if ordered_paths:
+                path_index = {p: i for i, p in enumerate(ordered_paths)}
+                inventory = sorted(
+                    inventory,
+                    key=lambda x: path_index.get(x.get("path"), len(path_index))
                 )
 
-            for future in as_completed(futures):
-                future.result()
+                factory.log(f"🧠 Dependency‑aware scheduling applied ({len(ordered_paths)} tasks)")
+
+        batches = {
+            "domain": [],
+            "application": [],
+            "infrastructure": [],
+            "other": []
+        }
+
+        for item in inventory:
+            path = item["path"]
+            if path.startswith("domain/"):
+                batches["domain"].append(item)
+            elif path.startswith("application/"):
+                batches["application"].append(item)
+            elif path.startswith("infrastructure/"):
+                batches["infrastructure"].append(item)
+            else:
+                batches["other"].append(item)
+
+        ordered_batches = [
+            ("domain", batches["domain"]),
+            ("application", batches["application"]),
+            ("infrastructure", batches["infrastructure"]),
+            ("other", batches["other"]),
+        ]
+
+        total = len(inventory)
+        workers = min(4, os.cpu_count() or 4)
+        index = 0
+
+        for layer, items in ordered_batches:
+
+            if not items:
+                continue
+
+            factory.log(f"🧱 Generating {layer} layer ({len(items)} files)")
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = []
+
+                for item in items:
+                    index += 1
+                    futures.append(
+                        pool.submit(
+                            factory._generate_single_file,
+                            item,
+                            index,
+                            total
+                        )
+                    )
+
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        factory.log(f"⚠️ Code generation task failed: {e}")
+                        factory.log("↻ Retrying file generation sequentially")
+
+                        try:
+                            item = getattr(e, "item", None)
+                            if item:
+                                factory._generate_single_file(item, 0, total)
+                        except Exception as retry_err:
+                            factory.log(f"❌ Retry failed: {retry_err}")
 
 
 class CompileAgent:
@@ -127,12 +233,225 @@ class CompileAgent:
 
 class CompileFixAgent:
     def run(self, factory, compile_output):
+        patterns = []
+
+        try:
+            memory = getattr(factory, "compile_memory", None)
+            if memory:
+                patterns = memory.get_patterns()
+        except Exception:
+            patterns = []
+
         fixed = factory.executor.run_task(
             "fix_compile_error",
             error_log=compile_output,
+            known_patterns=json.dumps(patterns),
             base_package=factory.base_package
         )
+
+        # store learned compile error pattern
+        try:
+            memory = getattr(factory, "compile_memory", None)
+            if memory and fixed:
+                memory.record(
+                    error=compile_output[:500],
+                    fix=json.dumps(fixed)[:500] if fixed else ""
+                )
+        except Exception:
+            pass
+
         return fixed
+
+
+# ------------------ Test Agent ------------------
+# ------------------ Test Agent ------------------
+class TestAgent:
+    """
+    Generates and runs tests for the generated code.
+    If tests fail, it can request fixes from the LLM.
+    """
+
+    def run(self, factory):
+        backend_path = factory.output_root / "backend"
+
+        if not backend_path.exists():
+            factory.log("⚠️ Backend directory not found, skipping tests")
+            return True, ""
+
+        try:
+            factory.log("🧪 Running Maven tests...")
+
+            result = subprocess.run(
+                ["mvn", "-q", "test"],
+                cwd=backend_path,
+                capture_output=True,
+                text=True
+            )
+
+            output = result.stdout + "\n" + result.stderr
+
+            if result.returncode == 0:
+                factory.log("✅ Tests passed")
+                return True, output
+            else:
+                factory.log("❌ Tests failed")
+                factory.log(output)
+                return False, output
+
+        except FileNotFoundError:
+            factory.log("⚠️ Maven not installed, skipping tests")
+            return True, ""
+
+
+# ------------------ Test Generator Agent ------------------
+class TestGeneratorAgent:
+    """
+    Generates basic JUnit tests for generated services and controllers.
+    This improves QA loops in the factory pipeline.
+    """
+
+    def run(self, factory, inventory):
+        generated = 0
+
+        for item in inventory:
+            rel = item.get("path")
+
+            if not rel or not rel.endswith(".java"):
+                continue
+
+            if "/service/" not in rel and "/rest/" not in rel:
+                continue
+
+            test_rel = rel.replace(".java", "Test.java")
+
+            try:
+                factory.executor.run_task(
+                    "generate_test",
+                    path=test_rel,
+                    source_path=rel,
+                    base_package=factory.base_package
+                )
+                generated += 1
+            except Exception:
+                continue
+
+        factory.log(f"🧪 Test generator created {generated} tests")
+
+
+# ------------------ Critic Agent ------------------
+class CriticAgent:
+    """
+    Reviews generated code and can trigger improvement cycles.
+    """
+
+    def run(self, factory):
+        try:
+            report = factory.executor.run_task(
+                "critic_codebase",
+                idea=factory.idea,
+                base_package=factory.base_package
+            )
+
+            if isinstance(report, str):
+                try:
+                    report = json.loads(report)
+                except Exception:
+                    report = {"summary": report}
+
+            return report
+
+        except Exception as e:
+            factory.log(f"⚠️ Critic phase skipped: {e}")
+            return None
+
+
+
+# ------------------ Repair Agent ------------------
+class RepairAgent:
+    """
+    Attempts to repair issues detected by the critic.
+    """
+
+    def run(self, factory, critic_report):
+        try:
+            # If critic provides specific problematic files, repair them individually
+            files = critic_report.get("files") if isinstance(critic_report, dict) else None
+
+            if files and isinstance(files, list):
+                factory.log(f"🛠 Targeted repair for {len(files)} files")
+
+                for path in files:
+                    try:
+                        factory.executor.run_task(
+                            "repair_file",
+                            path=path,
+                            report=json.dumps(critic_report),
+                            base_package=factory.base_package
+                        )
+                    except Exception as e:
+                        factory.log(f"⚠️ File repair skipped for {path}: {e}")
+
+                return True
+
+            # fallback: repair entire codebase
+            result = factory.executor.run_task(
+                "repair_codebase",
+                report=json.dumps(critic_report),
+                base_package=factory.base_package
+            )
+
+            return result
+
+        except Exception as e:
+            factory.log(f"⚠️ Repair phase skipped: {e}")
+            return None
+
+
+# ------------------ Architecture Guard Agent ------------------
+class ArchitectureGuardAgent:
+    """
+    Validates that generated code respects architectural layer boundaries.
+    Prevents domain from importing infrastructure, etc.
+    """
+
+    FORBIDDEN_IMPORTS = {
+        "domain": [".infrastructure.", ".rest.", ".persistence."],
+        "application": [".rest."]
+    }
+
+    def run(self, factory, inventory):
+        violations = []
+
+        for item in inventory:
+            rel = item.get("path")
+            if not rel or not rel.endswith(".java"):
+                continue
+
+            layer = rel.split("/")[0]
+
+            file_path = factory.resolve_output_path(rel)
+            if not file_path.exists():
+                continue
+
+            try:
+                content = file_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            forbidden = self.FORBIDDEN_IMPORTS.get(layer, [])
+
+            for f in forbidden:
+                if f in content:
+                    violations.append((rel, f))
+
+        if violations:
+            factory.log(f"🚨 Architecture violations detected: {len(violations)}")
+            for v in violations:
+                factory.log(f"  - {v[0]} imports forbidden dependency {v[1]}")
+        else:
+            factory.log("🛡 Architecture guard passed")
+
+        return len(violations) == 0
 
 
 
@@ -179,6 +498,235 @@ class ImportDependencyAnalyzer:
 
         return nodes, edges
 
+
+
+# ------------------ Domain Graph Builder ------------------
+
+
+
+class DomainGraphBuilder:
+    """
+    Builds a simple relationship graph between entities based on field types.
+    This helps later stages (DTOs, mappers, services) understand domain relations.
+    """
+
+    def build(self, domain_model: dict):
+
+        dm = domain_model.get("domain_model", domain_model)
+
+        entities = {e["name"] for e in dm.get("entities", [])}
+        graph = defaultdict(set)
+
+        for ent in dm.get("entities", []):
+            src = ent.get("name")
+            for f in ent.get("fields", []):
+                t = f.get("type")
+
+                if not t:
+                    continue
+
+                # normalize generic wrappers and nested generics (e.g., List<Student>, List<List<Student>>)
+                t = re.sub(r".*<(.+?)>", r"\1", t)
+                t = t.split(",")[-1].strip()
+                t = re.sub(r".*<(.+?)>", r"\1", t)
+
+                # if generics contain multiple types (e.g., Map<String, Student>) keep the last
+                if "," in t:
+                    t = t.split(",")[-1].strip()
+
+                if t in entities and t != src:
+                    graph[src].add(t)
+
+        return {k: sorted(v) for k, v in graph.items()}
+
+
+# ------------------ Spec Graph Builder ------------------
+
+
+
+class SpecGraphBuilder:
+    """
+    Builds a structured specification graph from the domain model.
+    This gives the LLM a deterministic structural spec for entities.
+    """
+
+    def build(self, domain_model: dict):
+        dm = domain_model.get("domain_model", domain_model)
+
+        graph = {}
+
+        for ent in dm.get("entities", []):
+            name = ent.get("name")
+            fields = ent.get("fields", []) or []
+
+            graph[name] = {
+                "fields": fields,
+                "relations": []
+            }
+
+        return graph
+
+# ------------------ Deterministic Spec Generator ------------------
+class DeterministicSpecGenerator:
+    """
+    Produces a deterministic structural specification for entities.
+    This reduces LLM hallucinations by providing a strict contract
+    for fields and relationships before code generation.
+    """
+
+    def build(self, domain_model: dict):
+        dm = domain_model.get("domain_model", domain_model)
+
+        spec = {}
+
+        for ent in dm.get("entities", []):
+            name = ent.get("name")
+            fields = ent.get("fields", []) or []
+
+            field_names = [f.get("name") for f in fields if f.get("name")]
+            field_types = [f.get("type") for f in fields if f.get("type")]
+
+            # deterministic structural hash for the entity
+            try:
+                entity_hash = hashlib.sha256(
+                    json.dumps(fields, sort_keys=True).encode()
+                ).hexdigest()
+            except Exception:
+                entity_hash = None
+
+            spec[name] = {
+                "entity": name,
+                "signature": entity_hash,
+                "fields": [
+                    {
+                        "name": f.get("name"),
+                        "type": f.get("type"),
+                        "required": f.get("required", False)
+                    }
+                    for f in fields
+                ],
+                "field_names": field_names,
+                "field_types": field_types,
+                "allowed_fields": field_names,
+                "required_fields": ["id"] if "id" in field_names else []
+            }
+
+        return spec
+
+
+# ------------------ Field Validator ------------------
+class FieldValidator:
+    """
+    Validates that generated entity/DTO code does not introduce fields
+    outside the deterministic specification.
+    This reduces LLM hallucinations in generated classes.
+    """
+
+    FIELD_RE = re.compile(r"private\s+[A-Za-z0-9_<>,\s]+\s+([a-zA-Z0-9_]+)\s*;")
+
+    def validate(self, code: str, deterministic_spec: dict):
+        if not deterministic_spec:
+            return True, []
+
+        allowed = set(deterministic_spec.get("allowed_fields", []))
+        if not allowed:
+            return True, []
+
+        found = set(self.FIELD_RE.findall(code))
+
+        invalid = [f for f in found if f not in allowed]
+
+        return len(invalid) == 0, invalid
+
+
+# ------------------ Code Planner ------------------
+class CodePlanner:
+    """
+    Builds a deterministic code plan for each entity before generation.
+    This reduces LLM hallucinations by pre‑defining structure.
+    """
+
+    def build(self, domain_model: dict):
+        dm = domain_model.get("domain_model", domain_model)
+
+        plan = {}
+
+        for ent in dm.get("entities", []):
+            name = ent.get("name")
+            fields = ent.get("fields", []) or []
+
+            plan[name] = {
+                "entity": name,
+                "fields": fields,
+                "has_id": any(f.get("name") == "id" for f in fields),
+                "has_relations": any("Id" in (f.get("type") or "") for f in fields),
+            }
+
+        return plan
+
+
+# ------------------ Impact Analyzer ------------------
+
+class ImpactAnalyzer:
+    """
+    Computes which files are impacted when domain entities change.
+    Uses the domain graph and file inventory.
+    """
+
+    def __init__(self, domain_graph):
+        self.domain_graph = domain_graph or {}
+
+    def compute_impacted_files(self, inventory, changed_entities):
+        impacted = set()
+
+        for item in inventory:
+            entity = item.get("entity")
+
+            if entity in changed_entities:
+                impacted.add(item["path"])
+                continue
+
+            relations = self.domain_graph.get(entity, [])
+            if any(rel in changed_entities for rel in relations):
+                impacted.add(item["path"])
+
+        return impacted
+
+# ------------------ Pipeline Engine ------------------
+
+class PipelineStep:
+    def __init__(self, name, fn):
+        self.name = name
+        self.fn = fn
+
+    def run(self, ctx):
+        return self.fn(ctx)
+
+
+class PipelineEngine:
+    """
+    Simple declarative pipeline executor so phases can be composed
+    without hard‑coding everything inside the orchestrator.
+    """
+
+    def __init__(self, steps):
+        self.steps = steps
+
+    def run(self, ctx):
+        results = {}
+        for step in self.steps:
+            ctx.log(f"▶ Pipeline step: {step.name}")
+            start = time.time()
+            try:
+                results[step.name] = step.run(ctx)
+                duration = time.time() - start
+                ctx.log(f"✅ Step completed: {step.name} ({duration:.2f}s)")
+            except Exception as e:
+                duration = time.time() - start
+                ctx.log(f"❌ Pipeline step failed: {step.name} after {duration:.2f}s → {e}")
+                raise RuntimeError(f"Pipeline failed at step '{step.name}'") from e
+        return results
+
 # ------------------ Orchestrator ------------------
 
 class FactoryOrchestrator:
@@ -191,83 +739,178 @@ class FactoryOrchestrator:
         self.architecture_reasoning_agent = ArchitectureReasoningAgent()
         self.architecture_agent = ArchitectureAgent()
         self.codegen_agent = CodeGenerationAgent()
+        self.critic_agent = CriticAgent()
+        self.repair_agent = RepairAgent()
+        self.architecture_guard = ArchitectureGuardAgent()
         self.compile_agent = CompileAgent()
         self.compile_fix_agent = CompileFixAgent()
+        self.test_agent = TestAgent()
+        self.test_generator_agent = TestGeneratorAgent()
         self.task_graph_builder = TaskGraphBuilder()
         self.import_dependency_analyzer = ImportDependencyAnalyzer()
         self.code_dependency_graph = CodeDependencyGraph()
+        self.domain_graph_builder = DomainGraphBuilder()
+        self.spec_graph_builder = SpecGraphBuilder()
+        self.deterministic_spec_generator = DeterministicSpecGenerator()
+        self.field_validator = FieldValidator()
+        self.code_planner = CodePlanner()
         self.refactor_agent = RefactorAgent()
         self.runtime_feedback_agent = RuntimeFeedbackAgent()  # TODO: implement this module
         self.evolution_agent = EvolutionAgent()
+        # compile error learning memory
+        try:
+            self.compile_memory = CompileMemory()
+        except Exception:
+            self.compile_memory = None
+        
+
 
     def run(self):
 
         f = self.factory
+
+        # attach compile memory so agents can use it
+        if getattr(self, "compile_memory", None):
+            setattr(f, "compile_memory", self.compile_memory)
 
         f.log("🧠 Orchestrator starting")
         # ---- BOOTSTRAP (project skeleton) ----
         f._bootstrap_pom()
         f._bootstrap_domain_kernel()
 
+        previous_domain = None
+        if f.spec_file.exists():
+            try:
+                data = json.loads(f.spec_file.read_text())
+                previous_domain = data.get("domain_model")
+            except Exception:
+                previous_domain = None
+
         if StateManager.load_specs(f.spec_file, f.state):
             f.log("📦 Loaded cached domain model and architecture")
         else:
+            # ---- PROJECT PIPELINE (planning → domain → architecture) ----
 
-            # ---- PROJECT PLANNING PHASE ----
-            plan = self.project_planner.run(f)
-            if isinstance(plan, dict) and plan.get("idea"):
-                f.idea = plan["idea"]
+            def step_plan(factory):
+                plan = self.project_planner.run(factory)
+                if isinstance(plan, dict) and plan.get("idea"):
+                    factory.idea = plan["idea"]
+                return plan
 
-            domain_model = self.domain_agent.run(f)
-            domain_model = self.semantic_agent.run(f, domain_model)
+            def step_domain(factory):
+                domain_model = self.domain_agent.run(factory)
+                domain_model = self.semantic_agent.run(factory, domain_model)
 
-            # --- domain enrichment ---
-            domain_model = f.enrich_domain(domain_model)
+                validate_domain_model(domain_model)
+                factory.log("✅ Domain model validated")
 
-            # --- domain learning ---
-            f.learn_domain(domain_model)
+                domain_model = factory.enrich_domain(domain_model)
+                factory.learn_domain(domain_model)
 
-            dm = domain_model.get("domain_model", domain_model)
+                dm = domain_model.get("domain_model", domain_model)
 
-            f.log(
-                f"🧠 Semantic enrichment applied "
-                f"(value_objects={len(dm.get('value_objects', []))}, "
-                f"entities={len(dm.get('entities', []))})"
-            )
+                factory.log(
+                    f"🧠 Semantic enrichment applied "
+                    f"(value_objects={len(dm.get('value_objects', []))}, "
+                    f"entities={len(dm.get('entities', []))})"
+                )
 
-            architecture_style = self.architecture_reasoning_agent.run(f, domain_model)
+                factory.state.domain_model = domain_model
 
-            f.log(f"🏗 Architecture style selected: {architecture_style['architecture_style']}")
+                # ---- DOMAIN GRAPH BUILD ----
+                try:
+                    graph = self.domain_graph_builder.build(domain_model)
+                    factory.state.domain_graph = graph
+                    factory.log(f"🧩 Domain graph built ({len(graph)} relations)")
+                except Exception as e:
+                    factory.log(f"⚠️ Domain graph skipped: {e}")
 
-            architecture = self.architecture_agent.run(f, domain_model)
+                # ---- SPEC GRAPH BUILD ----
+                try:
+                    spec_graph = self.spec_graph_builder.build(domain_model)
+                    factory.state.spec_graph = spec_graph
+                    factory.log(f"📐 Spec graph built ({len(spec_graph)} entities)")
+                except Exception as e:
+                    factory.log(f"⚠️ Spec graph skipped: {e}")
 
-            # ---- TASK GRAPH BUILDER (observability) ----
-            task_graph = self.task_graph_builder.build(architecture)
-            f.log(f"🧩 Task graph built ({len(task_graph)} tasks)")
+                # ---- DETERMINISTIC SPEC BUILD ----
+                try:
+                    deterministic_spec = self.deterministic_spec_generator.build(domain_model)
+                    factory.state.deterministic_spec = deterministic_spec
+                    factory.log(f"🧾 Deterministic spec built ({len(deterministic_spec)} entities)")
+                except Exception as e:
+                    factory.log(f"⚠️ Deterministic spec skipped: {e}")
 
-            # ---- DEPENDENCY GRAPH ORDERING ----
-            from ai.graph.dependency_graph_builder import DependencyGraphBuilder
+                # ---- CODE PLAN BUILD ----
+                try:
+                    code_plan = self.code_planner.build(domain_model)
+                    factory.state.code_plan = code_plan
+                    factory.log(f"🧠 Code plan built ({len(code_plan)} entities)")
+                except Exception as e:
+                    factory.log(f"⚠️ Code plan skipped: {e}")
 
-            graph = DependencyGraphBuilder()
+                return domain_model
 
-            ordered_inventory = graph.order_inventory(architecture)
+            def step_architecture(factory):
+                domain_model = factory.state.domain_model
 
-            architecture["file_inventory"] = ordered_inventory
+                architecture_style = self.architecture_reasoning_agent.run(factory, domain_model)
+                factory.log(f"🏗 Architecture style selected: {architecture_style['architecture_style']}")
 
-            f.log(f"📦 Dependency ordering applied ({len(ordered_inventory)} files)")
-            
+                architecture = self.architecture_agent.run(factory, domain_model)
 
-            f.state.domain_model = domain_model
-            f.state.architecture = architecture
+                task_graph = self.task_graph_builder.build(architecture)
+                factory.log(f"🧩 Task graph built ({len(task_graph)} tasks)")
+                factory.state.task_graph = task_graph
 
-            StateManager.save_specs(
-                f.spec_file,
-                f.state.domain_model,
-                f.state.architecture,
-                []
-            )
+                from ai.graph.dependency_graph_builder import DependencyGraphBuilder
+
+                graph = DependencyGraphBuilder()
+                ordered_inventory = graph.order_inventory(architecture)
+                architecture["file_inventory"] = ordered_inventory
+
+                factory.log(f"📦 Dependency ordering applied ({len(ordered_inventory)} files)")
+
+                factory.state.architecture = architecture
+
+                StateManager.save_specs(
+                    factory.spec_file,
+                    factory.state.domain_model,
+                    factory.state.architecture,
+                    factory.state.signatures
+                )
+
+                return architecture
+
+            pipeline = PipelineEngine([
+                PipelineStep("plan_project", step_plan),
+                PipelineStep("model_domain", step_domain),
+                PipelineStep("design_architecture", step_architecture),
+            ])
+
+            pipeline.run(f)
 
         inventory = f.state.architecture["file_inventory"]
+
+        # ---- IMPACT ANALYSIS ----
+        try:
+            if previous_domain and f.state.domain_model:
+                old_entities = {e.get("name") for e in previous_domain.get("entities", [])}
+                new_entities = {e.get("name") for e in f.state.domain_model.get("domain_model", f.state.domain_model).get("entities", [])}
+
+                changed_entities = new_entities.symmetric_difference(old_entities)
+
+                if changed_entities:
+                    f.log(f"🧠 Impact analysis detected changes in: {sorted(changed_entities)}")
+
+                    analyzer = ImpactAnalyzer(getattr(f.state, "domain_graph", {}))
+                    impacted = analyzer.compute_impacted_files(inventory, changed_entities)
+
+                    if impacted:
+                        inventory = [i for i in inventory if i.get("path") in impacted]
+                        f.log(f"⚡ Selective regeneration: {len(inventory)} impacted files")
+        except Exception as e:
+            f.log(f"⚠️ Impact analysis skipped: {e}")
 
         # ---- CODE GENERATION AGENTS ----
         f.log("⚙️ Starting parallel code generation")
@@ -275,12 +918,53 @@ class FactoryOrchestrator:
 
         f.log("🚀 Code generation finished")
 
+        # ---- ARCHITECTURE GUARD PHASE ----
+        try:
+            self.architecture_guard.run(f, inventory)
+        except Exception as e:
+            f.log(f"⚠️ Architecture guard skipped: {e}")
+
+        # ---- CRITIC REVIEW PHASE ----
+        try:
+            critic_report = self.critic_agent.run(f)
+
+            if critic_report:
+                issues = critic_report.get("issues") if isinstance(critic_report, dict) else None
+                if issues:
+                    f.log(f"🧠 Critic review completed ({len(issues)} issues detected)")
+                else:
+                    f.log("🧠 Critic review completed")
+
+                # attempt automatic repair
+                repair_result = self.repair_agent.run(f, critic_report)
+
+                if repair_result:
+                    f.log("🔧 Repair agent applied improvements")
+
+        except Exception as e:
+            f.log(f"⚠️ Critic/repair phase skipped: {e}")
+
         # ---- CODE DEPENDENCY ANALYSIS (post-generation) ----
         try:
             nodes, edges = self.import_dependency_analyzer.build_graph(f, inventory)
             f.log(f"🔎 Import dependency scan completed ({len(edges)} relations detected)")
         except Exception as e:
             f.log(f"⚠️ Import dependency scan skipped: {e}")
+
+        # ---- TEST GENERATION PHASE ----
+        try:
+            self.test_generator_agent.run(f, inventory)
+        except Exception as e:
+            f.log(f"⚠️ Test generation skipped: {e}")
+
+        # ---- TEST PHASE ----
+        try:
+            tests_ok, test_output = self.test_agent.run(f)
+
+            if not tests_ok:
+                f.log("⚠️ Test failures detected (continuing to compile loop)")
+        except Exception as e:
+            f.log(f"⚠️ Test phase skipped: {e}")
 
         # ---- COMPILE AND FIX LOOP ----
         MAX_FIX_ATTEMPTS = 5
@@ -336,6 +1020,8 @@ class PipelineState:
         self.project_slug = re.sub(r"[^a-zA-Z0-9]", "", project_name.lower())
         self.domain_model = {}
         self.architecture = {}
+        self.domain_graph = {}
+        self.task_graph = []
         self.signatures = {}
 
 
@@ -820,7 +1506,8 @@ class SoftwareFactory:
                 "aggregates": [a.get("aggregate") for a in dm.get("aggregates", [])],
             }
 
-            self.domain_memory.learn(signals)
+            # store learned domain pattern
+            self.domain_memory.record(signals)
 
         except Exception as e:
             self.log(f"⚠️ Domain learning skipped: {e}")
@@ -833,8 +1520,47 @@ class SoftwareFactory:
 
         output_path = self.resolve_output_path(rel_path)
 
-        if output_path.exists():
-            self.log(f"⏭️ Skipping existing file {file_name}")
+        # --- Context enrichment for LLM ---
+        domain_graph = getattr(self.state, "domain_graph", {})
+        task_graph = getattr(self.state, "task_graph", [])
+
+        # find task dependencies for this file
+        deps = []
+        for t in task_graph:
+            if isinstance(t, dict) and t.get("path") == rel_path:
+                deps = t.get("depends_on", []) or []
+                break
+
+        parts = rel_path.split("/")
+        layer = parts[0] if len(parts) > 0 else None
+        module = parts[1] if len(parts) > 1 else None
+
+        context_payload = json.dumps({
+            "name": item["entity"],
+            "kind": item["description"],
+            "fields": item.get("fields", []),
+            "values": item.get("values", []),
+            "path": rel_path,
+            "layer": layer,
+            "module": module,
+            "base_package": self.base_package,
+            "expected_package": self._expected_package_for(rel_path),
+            "domain_relations": domain_graph.get(item["entity"], []),
+            "spec_fields": getattr(self.state, "spec_graph", {}).get(item["entity"], {}).get("fields", []),
+            "deterministic_spec": getattr(self.state, "deterministic_spec", {}).get(item["entity"], {}),
+            "code_plan": getattr(self.state, "code_plan", {}).get(item["entity"], {}),
+            "task_dependencies": deps,
+        }, sort_keys=True)
+
+        # --- incremental generation signature ---
+        model = getattr(self.executor, "model_name", "unknown")
+        signature_raw = rel_path + context_payload + model
+        
+        signature = hashlib.sha256(signature_raw.encode()).hexdigest()
+
+        prev_sig = self.state.signatures.get(rel_path)
+        if prev_sig and prev_sig == signature and output_path.exists():
+            self.log(f"⏭️ Incremental skip (no changes) {file_name}")
             return
 
         self.log(f"[{index}/{total}] Fabricating {file_name}")
@@ -863,21 +1589,32 @@ class SoftwareFactory:
 
         prompt = mandatory_header + strict + "\n" + golden
 
-        code = self.executor.run_task(
-            "write_code",
-            path=rel_path,
-            desc=prompt,
-            base_package=self.base_package,
-            context_data=json.dumps({
-                "name": item["entity"],
-                "kind": item["description"],
-                "fields": item.get("fields", []),
-                "values": item.get("values", []),
-                "path": rel_path,
-                "base_package": self.base_package,
-                "expected_package": expected_pkg,
-            }),
-        )
+        # --- LLM cache directory ---
+        cache_dir = Path(".llm_cache")
+        cache_dir.mkdir(exist_ok=True)
+
+        # --- deterministic cache key (include model/provider) ---
+        model = getattr(self.executor, "model_name", "unknown")
+        cache_key_raw = rel_path + prompt + context_payload + model
+        cache_key = hashlib.sha256(cache_key_raw.encode()).hexdigest()
+        cache_file = cache_dir / f"{cache_key}.java"
+
+        if cache_file.exists():
+            self.log(f"⚡ Cache hit for {file_name}")
+            code = cache_file.read_text(encoding="utf-8")
+        else:
+            code = self.executor.run_task(
+                "write_code",
+                path=rel_path,
+                desc=prompt,
+                base_package=self.base_package,
+                context_data=context_payload,
+            )
+
+            try:
+                cache_file.write_text(code, encoding="utf-8")
+            except Exception:
+                pass
 
         from ai.validators.code_verifier import verify_java_code
         from ai.validators.code_auto_fix import auto_fix_java_code
@@ -889,7 +1626,19 @@ class SoftwareFactory:
             code = auto_fix_java_code(code, verification["issues"])
             self.log("🔧 Auto-fix applied")
 
+        # ---- FIELD VALIDATION AGAINST DETERMINISTIC SPEC ----
+        try:
+            spec = getattr(self.state, "deterministic_spec", {}).get(item["entity"], {})
+            ok, invalid_fields = self.orchestrator.field_validator.validate(code, spec) if hasattr(self, "orchestrator") else (True, [])
+
+            if not ok:
+                self.log(f"🚫 Invalid fields detected in {file_name}: {invalid_fields}")
+        except Exception:
+            pass
+
         self.save_to_disk(rel_path, code)
+        # store new generation signature
+        self.state.signatures[rel_path] = signature
 
     # ------------------------------------------------
 
@@ -898,4 +1647,6 @@ class SoftwareFactory:
 if __name__ == "__main__":
     factory = SoftwareFactory(" ".join(sys.argv[1:]))
     orchestrator = FactoryOrchestrator(factory)
+    # Attach orchestrator reference to factory after agents created
+    factory.orchestrator = orchestrator
     orchestrator.run() 

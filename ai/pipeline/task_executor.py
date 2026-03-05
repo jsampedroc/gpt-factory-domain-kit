@@ -163,6 +163,7 @@ class TaskExecutor:
 
                 err = str(e).lower()
 
+                # --- RATE LIMIT HANDLING ---
                 if "rate limit" in err or "429" in err or "quota" in err:
 
                     wait = base_wait * (attempt + 1)
@@ -173,9 +174,22 @@ class TaskExecutor:
                     )
 
                     time.sleep(wait)
-
                     continue
 
+                # --- TRANSIENT SERVER ERRORS (DeepSeek / OpenAI 500 etc.) ---
+                if "500" in err or "internal_error" in err or "timeout" in err:
+
+                    wait = 3 * (attempt + 1)
+
+                    print(
+                        f"\n⚠️ Transient LLM error from {provider}. "
+                        f"Retrying in {wait}s ({attempt+1}/{max_retries})"
+                    )
+
+                    time.sleep(wait)
+                    continue
+
+                # --- UNKNOWN CRITICAL ERROR ---
                 raise RuntimeError(
                     f"Critical API error from {provider}: {e}"
                 )

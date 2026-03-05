@@ -1,65 +1,39 @@
+"""ai.agents.semantic_agent
 
-"""
-Semantic Agent
+Semantic enrichment wrapper.
 
-Responsible for enriching the raw domain model using the semantic
-analysis pipeline (DDD pattern detection, aggregates, invariants,
-domain graph, value objects, etc.).
+main.py calls:
+    domain_model = SemanticAgent().run(factory, domain_model)
+
+So the signature MUST be (factory, domain_model).
 """
 
 from ai.domain.semantic_type_detector import detect_semantic_types
 
 
 class SemanticAgent:
-    """
-    Agent responsible for semantic enrichment of the domain model.
+    """Enrich a domain model by inferring semantic/value-object types, aggregates, invariants, etc."""
 
-    Input:
-        Raw domain model produced by the DomainAgent.
+    name = "semantic"
 
-    Output:
-        Enriched domain model containing:
-            - semantic types
-            - value objects
-            - aggregates
-            - domain events
-            - invariants
-            - domain graph
-            - architecture hints
-            - learning signals
-    """
-
-    def __init__(self, logger=None):
+    def __init__(self, factory=None, logger=None):
+        self.factory = factory
         self.logger = logger
 
-    def run(self, domain_model: dict) -> dict:
-        """
-        Execute semantic enrichment.
-
-        Parameters
-        ----------
-        domain_model : dict
-            Raw domain model produced by the domain reasoning step.
-
-        Returns
-        -------
-        dict
-            Enriched domain model.
-        """
-
+    def run(self, factory, domain_model: dict) -> dict:
+        # factory is currently unused but kept for consistency and future hooks.
         if self.logger:
             self.logger.info("🧠 SemanticAgent: starting semantic enrichment")
 
         enriched_model = detect_semantic_types(domain_model)
 
         if self.logger:
-            entities = len(enriched_model.get("entities", []))
-            vos = len(enriched_model.get("value_objects", []))
-            aggregates = len(enriched_model.get("aggregates", []))
-
+            dm = enriched_model.get("domain_model", enriched_model)
+            entities = len(dm.get("entities", []))
+            vos = len(dm.get("value_objects", []))
+            aggregates = len(dm.get("aggregates", []))
             self.logger.info(
-                f"🧠 SemanticAgent: enrichment complete "
-                f"(entities={entities}, value_objects={vos}, aggregates={aggregates})"
+                f"🧠 SemanticAgent: enrichment complete (entities={entities}, value_objects={vos}, aggregates={aggregates})"
             )
 
         return enriched_model

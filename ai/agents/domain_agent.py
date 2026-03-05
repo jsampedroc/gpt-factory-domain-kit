@@ -1,20 +1,30 @@
+"""ai.agents.domain_agent
+
+This agent is invoked by main as:
+
+    domain_model = DomainAgent().run(factory)
+
+Where `factory` is an instance of SoftwareFactory.
+
+It MUST NOT expect a dict-like ctx.
+"""
+
 import json
-from ai.agents.base import AgentResult
-from ai.pipeline.task_executor import TaskExecutor
-from ai.domain.semantic_type_detector import detect_semantic_types
+
 
 class DomainAgent:
-    name = "domain_agent"
+    """Runs the LLM domain reasoning task and returns the raw domain model (dict)."""
 
-    def __init__(self):
-        self.executor = TaskExecutor()
+    name = "domain"
 
-    def run(self, ctx):
-        raw = self.executor.run_task(
+    def __init__(self, factory=None):
+        # Keep constructor flexible for AgentRegistry/_get
+        self.factory = factory
+
+    def run(self, factory):
+        raw = factory.executor.run_task(
             "model_domain",
-            idea=ctx["idea"],
-            base_package=ctx["base_package"],
+            idea=factory.idea,
+            base_package=factory.base_package,
         )
-        dm = json.loads(raw)
-        dm = detect_semantic_types(dm)  # tu motor actual
-        return AgentResult(ok=True, artifact=dm, notes="Domain model + semantic enrichment")
+        return json.loads(raw)

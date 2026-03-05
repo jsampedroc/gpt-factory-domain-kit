@@ -5,7 +5,14 @@ import time
 from ai.llm.llm_config import build_llm_client, get_model_config
 from ai.llm.grounding import build_grounded_prompt
 
-import ai.agents as agents
+
+from ai.agents.software_architect import build_software_architect
+from ai.agents.backend_builder import build_backend_builder
+from ai.agents.frontend_builder import build_frontend_builder
+from ai.agents.qa_agent import build_qa_agent
+from ai.agents.sre_agent import build_sre_agent
+from ai.agents.principal_architect import build_principal_architect
+
 
 
 class TaskExecutor:
@@ -90,13 +97,13 @@ class TaskExecutor:
         role_key = agent_override if agent_override else task_def["agent"]
 
         agent_map = {
-            "domain_reasoner": agents.build_domain_reasoner,
-            "architect": agents.build_software_architect,
-            "backend_builder": agents.build_backend_builder,
-            "frontend_builder": agents.build_frontend_builder,
-            "qa_agent": agents.build_qa_agent,
-            "sre_agent": agents.build_sre_agent,
-            "principal_architect": agents.build_principal_architect
+            "domain_reasoner": build_domain_reasoner,
+            "architect": build_software_architect,
+            "backend_builder": build_backend_builder,
+            "frontend_builder": build_frontend_builder,
+            "qa_agent": build_qa_agent,
+            "sre_agent": build_sre_agent,
+            "principal_architect": build_principal_architect,
         }
 
         if role_key not in agent_map:

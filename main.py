@@ -81,23 +81,50 @@ class FactoryOrchestrator:
                 self.agents = None
 
         def _get(name: str, ctor):
-            # Prefer agents discovered by AgentRegistry
-            if isinstance(self.agents, dict) and name in self.agents:
-                return self.agents[name]
+            """
+            Unified agent resolver.
 
-            # Try to instantiate with factory (most advanced agents need context)
+            Supports:
+            - AgentRegistry returning instances
+            - AgentRegistry returning classes
+            - agents needing factory
+            - agents needing project_root
+            - agents with empty constructor
+            """
+
+            if isinstance(self.agents, dict) and name in self.agents:
+                agent = self.agents[name]
+
+                # If registry returned a CLASS, instantiate it
+                if isinstance(agent, type):
+                    try:
+                        return agent(self.factory)
+                    except TypeError:
+                        pass
+
+                    try:
+                        return agent(self.factory.output_root)
+                    except TypeError:
+                        pass
+
+                    return agent()
+
+                # If registry returned an INSTANCE
+                return agent
+
+            # Try constructor(factory)
             try:
                 return ctor(self.factory)
             except TypeError:
                 pass
 
-            # Try with project/output root (compile/test agents typically need this)
+            # Try constructor(project_root)
             try:
                 return ctor(self.factory.output_root)
             except TypeError:
                 pass
 
-            # Fallback: no-arg constructor
+            # Fallback
             return ctor()
 
         # Core pipeline agents
@@ -163,7 +190,10 @@ class FactoryOrchestrator:
 
             architecture_style = self.architecture_reasoning_agent.run(f, domain_model)
 
-            f.log(f"🏗 Architecture style selected: {architecture_style['architecture_style']}")
+            if isinstance(architecture_style, dict):
+                f.log(f"🏗 Architecture style selected: {architecture_style.get('architecture_style','unknown')}")
+            else:
+                f.log("🏗 Architecture style selected")
 
             architecture = self.architecture_agent.run(f, domain_model)
 
@@ -239,7 +269,7 @@ class FactoryOrchestrator:
         def _regenerate_paths(paths):
             if not paths:
                 return
-            inv_by_path = {it.get("path"): it for it in inventory}
+            inv_by_path = {it["path"]: it for it in inventory if "path" in it}
             for p in paths:
                 item = inv_by_path.get(p)
                 if not item:
@@ -282,7 +312,7 @@ class FactoryOrchestrator:
                     fixed = False
 
             if not fixed:
-                break
+                continue
 
         if success:
             f.log("✨ PROJECT GENERATED AND VERIFIED")

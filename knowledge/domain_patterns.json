@@ -12,7 +12,8 @@
     "AuthorizedPickup",
     "AllergyLog",
     "ImmunizationRecord",
-    "Allergy"
+    "Allergy",
+    "ContactNumber"
   ],
   "aggregates": [
     "Order"

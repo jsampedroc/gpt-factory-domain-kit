@@ -16,5 +16,114 @@
       "Money"
     ],
     "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "EmergencyContact",
+      "ImmunizationRecord",
+      "AllergyLog",
+      "AuthorizedPickupContact",
+      "Classroom",
+      "Teacher",
+      "TuitionPlan",
+      "Invoice"
+    ],
+    "value_objects": [
+      "ActivityLog",
+      "Email",
+      "GeoLocation",
+      "Money"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "ContactNumber",
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
   }
 ]

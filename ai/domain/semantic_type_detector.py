@@ -665,6 +665,32 @@ def detect_semantic_types(domain_model):
 
     dm["architecture_plan"] = architecture_plan
 
+    # ------------------------------------------------
+    # Type Discovery Engine (auto-VO generation)
+    # ------------------------------------------------
+    try:
+
+        engine = TypeDiscoveryEngine()
+        discovered = engine.discover(dm)
+
+        if discovered:
+
+            existing = {v["name"] for v in dm.get("value_objects", [])}
+
+            for vo in discovered:
+                if vo["name"] not in existing:
+                    dm.setdefault("value_objects", []).append({
+                        "name": vo["name"],
+                        "fields": [
+                            {"name": "value", "type": "String"}
+                        ],
+                        "description": "Auto-discovered value object"
+                    })
+
+    except Exception:
+        pass
+
+    
     # ensure deterministic order
     dm["value_objects"] = sorted(
         existing_vos.values(),
@@ -701,3 +727,55 @@ def detect_semantic_types(domain_model):
     update_knowledge(dm)
 
     return domain_model
+
+
+class TypeDiscoveryEngine:
+    """
+    Detects new domain types referenced in entity fields
+    and promotes them automatically to Value Objects.
+    """
+
+    JAVA_TYPES = {
+        "String", "Integer", "Long", "Boolean",
+        "Double", "Float", "Short", "Byte",
+        "UUID", "LocalDate", "LocalDateTime"
+    }
+
+    COLLECTIONS = {"List", "Set", "Map", "Optional"}
+
+    def discover(self, domain_model: dict):
+
+        dm = domain_model.get("domain_model", domain_model)
+
+        entities = {e["name"] for e in dm.get("entities", [])}
+        value_objects = {v["name"] for v in dm.get("value_objects", [])}
+
+        discovered = []
+
+        for entity in dm.get("entities", []):
+            for field in entity.get("fields", []):
+
+                t = field.get("type")
+                if not t:
+                    continue
+
+                # unwrap generics
+                if "<" in t:
+                    t = t.split("<")[-1].replace(">", "").strip()
+
+                # ignore collection container types
+                if t in self.COLLECTIONS:
+                    continue
+
+                if (
+                    t not in self.JAVA_TYPES
+                    and t not in entities
+                    and t not in value_objects
+                    and t[0].isupper()
+                ):
+                    discovered.append({
+                        "name": t,
+                        "fields": []
+                    })
+
+        return discovered

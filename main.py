@@ -27,6 +27,9 @@ from ai.agents.refactor_agent import RefactorAgent
 from ai.agents.runtime_feedback_agent import RuntimeFeedbackAgent  # TODO: implement this module
 from ai.agents.evolution_agent import EvolutionAgent
 from ai.domain.domain_model_validator import validate_domain_model
+from ai.graph.dependency_graph_builder import DependencyGraphBuilder
+from ai.codegen.import_resolver import resolve_imports
+
 
 
 # ------------------ Agents ------------------
@@ -538,6 +541,47 @@ class DomainGraphBuilder:
                     graph[src].add(t)
 
         return {k: sorted(v) for k, v in graph.items()}
+    
+
+ # ------------------ Semantic CodeGraph Builder ------------------   
+
+class SemanticCodeGraphBuilder:
+    """
+    Builds a richer semantic graph so the generator understands
+    entity relationships and avoids hallucinated DTO/service fields.
+    """
+
+    def build(self, domain_model: dict):
+
+        dm = domain_model.get("domain_model", domain_model)
+
+        entities = {e.get("name") for e in dm.get("entities", [])}
+
+        graph = {}
+
+        for ent in dm.get("entities", []):
+            name = ent.get("name")
+            relations = []
+
+            for f in ent.get("fields", []):
+
+                t = f.get("type")
+                if not t:
+                    continue
+
+                # unwrap generics
+                if "<" in t and ">" in t:
+                    t = t.split("<")[-1].replace(">", "")
+
+                if t in entities and t != name:
+                    relations.append({
+                        "target": t,
+                        "field": f.get("name")
+                    })
+
+            graph[name] = relations
+
+        return graph
 
 
 # ------------------ Spec Graph Builder ------------------
@@ -637,6 +681,308 @@ class FieldValidator:
         invalid = [f for f in found if f not in allowed]
 
         return len(invalid) == 0, invalid
+    
+# ------------------ Structural Code Guard ------------------
+class StructuralCodeGuard:
+    """
+    Prevents hallucinated fields, invalid imports,
+    and invalid repository/service relationships.
+    """
+
+    FIELD_RE = re.compile(r"private\s+[A-Za-z0-9_<>,\s]+\s+([a-zA-Z0-9_]+)\s*;")
+    IMPORT_RE = re.compile(r"import\s+([a-zA-Z0-9_.]+);")
+
+    def validate(self, code: str, spec: dict, base_package: str):
+
+        issues = []
+
+        allowed = set(spec.get("allowed_fields", []))
+
+        fields = set(self.FIELD_RE.findall(code))
+
+        invalid_fields = [f for f in fields if allowed and f not in allowed]
+
+        if invalid_fields:
+            issues.append({
+                "type": "invalid_fields",
+                "fields": invalid_fields
+            })
+
+        imports = self.IMPORT_RE.findall(code)
+
+        for imp in imports:
+
+            if imp.startswith(base_package):
+
+                if ".domain.model." not in imp and \
+                   ".domain.valueobject." not in imp and \
+                   ".domain.shared." not in imp and \
+                   ".domain.repository." not in imp and \
+                   ".application." not in imp and \
+                   ".infrastructure." not in imp:
+
+                    issues.append({
+                        "type": "invalid_import",
+                        "import": imp
+                    })
+
+        return issues
+
+
+# ------------------ AST Java Generator ------------------
+class ASTJavaGenerator:
+
+    def __init__(self, value_objects=None):
+        self.resolver = JavaTypeResolver(value_objects=value_objects)
+
+    def set_value_objects(self, value_objects):
+        self.resolver = JavaTypeResolver(value_objects=value_objects)
+
+    JAVA_STD_IMPORTS = {
+        "LocalDate": "java.time.LocalDate",
+        "List": "java.util.List",
+        "Set": "java.util.Set",
+        "UUID": "java.util.UUID",
+    }
+
+    def generate_class(self, package_name, class_name, fields, base_package=None):
+
+        imports = set()
+
+        for f in fields:
+
+            t = f.get("type", "")
+
+            if not t:
+                continue
+
+            # generics
+            if "<" in t:
+
+                outer = t.split("<")[0]
+                inner = t.split("<")[1].replace(">", "")
+
+                imp = self.resolver.resolve(outer, base_package)
+                if imp and not imp.endswith(class_name):
+                    imports.add(imp)
+
+                for inner_type in inner.split(","):
+
+                    inner_type = inner_type.strip()
+
+                    imp = self.resolver.resolve(inner_type, base_package)
+
+                    if imp and not imp.endswith(class_name):
+                        imports.add(imp)
+
+            else:
+
+                imp = self.resolver.resolve(t, base_package)
+
+                if imp and not imp.endswith(class_name):
+                    imports.add(imp)
+
+        lines = []
+
+        lines.append(f"package {package_name};\n")
+
+        if imports:
+            lines.append("\n")
+            for imp in sorted(imports):
+                lines.append(f"import {imp};\n")
+
+        lines.append("\n")
+
+        lines.append(f"public class {class_name} {{\n")
+
+        for f in fields:
+            t = f.get("type", "Object")
+            n = f.get("name", "field")
+            lines.append(f"    private {t} {n};\n")
+
+        lines.append("\n")
+
+        for f in fields:
+            t = f.get("type", "Object")
+            n = f.get("name", "field")
+            m = n[0].upper() + n[1:]
+            lines.append(f"    public {t} get{m}() {{ return {n}; }}\n")
+
+        lines.append("}\n")
+
+        return "".join(lines)
+
+
+# ------------------ Java Type Resolver ------------------
+class JavaTypeResolver:
+
+    """
+    Resolves Java type imports deterministically to avoid LLM hallucinations.
+
+    Rules:
+    - java.lang types -> no import
+    - known JDK types -> import from JDK
+    - <Name>Id -> domain.valueobject
+    - <Name>Status / <Name>Type -> domain.shared
+    - discovered value objects -> domain.valueobject
+    - everything else -> domain.model
+    """
+
+    JAVA_LANG = {
+        "String", "Integer", "Long", "Boolean",
+        "Double", "Float", "Short", "Byte",
+        "Character"
+    }
+
+    JAVA_STD = {
+        "LocalDate": "java.time.LocalDate",
+        "LocalDateTime": "java.time.LocalDateTime",
+        "UUID": "java.util.UUID",
+        "List": "java.util.List",
+        "Set": "java.util.Set",
+        "Map": "java.util.Map",
+        "Optional": "java.util.Optional",
+    }
+
+    def __init__(self, value_objects=None):
+        # value object names discovered from the domain model (e.g., GeoLocation, Money, Address)
+        self.value_objects = set(value_objects or [])
+
+    def resolve(self, type_name, base_package):
+
+        if not type_name:
+            return None
+
+        # strip whitespace
+        type_name = type_name.strip()
+
+        # java.lang
+        if type_name in self.JAVA_LANG:
+            return None
+
+        # JDK standard imports
+        if type_name in self.JAVA_STD:
+            return self.JAVA_STD[type_name]
+
+        # domain IDs
+        if type_name.endswith("Id"):
+            return f"{base_package}.domain.valueobject.{type_name}"
+
+        # enums in shared
+        if type_name.endswith("Status") or type_name.endswith("Type"):
+            return f"{base_package}.domain.shared.{type_name}"
+
+        # discovered value objects
+        if type_name in self.value_objects:
+            return f"{base_package}.domain.valueobject.{type_name}"
+
+        # default: entity/model
+        return f"{base_package}.domain.model.{type_name}"
+
+
+
+
+# ------------------ Template Java Generator ------------------
+class TemplateJavaGenerator:
+    """
+    Deterministic templates for common backend classes.
+    Reduces hallucinations for services, repositories and controllers.
+    """
+
+    def generate_service(self, package_name: str, class_name: str, entity: str, base_package: str):
+        return (
+            f"package {package_name};\n\n"
+            f"import {base_package}.domain.repository.{entity}Repository;\n\n"
+            f"public class {class_name} {{\n\n"
+            f"    private final {entity}Repository repository;\n\n"
+            f"    public {class_name}({entity}Repository repository) {{\n"
+            f"        this.repository = repository;\n"
+            f"    }}\n\n"
+            f"}}\n"
+        )
+
+    def generate_repository(self, package_name: str, entity: str):
+        return (
+            f"package {package_name};\n\n"
+            f"public interface {entity}Repository {{\n\n"
+            f"}}\n"
+        )
+
+    def generate_controller(self, pkg, class_name, entity, base_package):
+        base = entity
+        base_lower = base.lower()
+        return f"""
+            package {pkg};
+
+            import {base_package}.application.service.{base}Service;
+            import {base_package}.application.dto.{base}Request;
+            import {base_package}.application.dto.{base}Response;
+
+            import org.springframework.web.bind.annotation.*;
+
+            import java.util.List;
+
+            @RestController
+            @RequestMapping("/api/{base_lower}s")
+            public class {class_name} {{
+
+                private final {base}Service service;
+
+                public {class_name}({base}Service service) {{
+                    this.service = service;
+                }}
+
+                @PostMapping
+                public {base}Response create(@RequestBody {base}Request request) {{
+                    return service.create(request);
+                }}
+
+                @GetMapping("/{{id}}")
+                public {base}Response get(@PathVariable String id) {{
+                    return service.get(id);
+                }}
+
+                @GetMapping
+                public List<{base}Response> list() {{
+                    return service.list();
+                }}
+
+                @DeleteMapping("/{{id}}")
+                public void delete(@PathVariable String id) {{
+                    service.delete(id);
+                }}
+            }}
+        """
+    
+    
+    
+    def generate_jpa_entity(self, package_name, class_name, fields):
+
+        lines = []
+
+        lines.append(f"package {package_name};\n\n")
+        lines.append("import jakarta.persistence.*;\n")
+        lines.append("import java.util.UUID;\n\n")
+
+        lines.append("@Entity\n")
+        lines.append(f"public class {class_name} {{\n\n")
+
+        lines.append("    @Id\n")
+        lines.append("    private UUID id;\n\n")
+
+        for f in fields:
+
+            name = f.get("name")
+            type_ = f.get("type")
+
+            if name == "id":
+                continue
+
+            lines.append(f"    private {type_} {name};\n")
+
+        lines.append("}\n")
+
+        return "".join(lines)
 
 
 # ------------------ Code Planner ------------------
@@ -749,14 +1095,16 @@ class FactoryOrchestrator:
         self.task_graph_builder = TaskGraphBuilder()
         self.import_dependency_analyzer = ImportDependencyAnalyzer()
         self.code_dependency_graph = CodeDependencyGraph()
-        self.domain_graph_builder = DomainGraphBuilder()
-        self.spec_graph_builder = SpecGraphBuilder()
         self.deterministic_spec_generator = DeterministicSpecGenerator()
         self.field_validator = FieldValidator()
+        self.ast_generator = ASTJavaGenerator()
         self.code_planner = CodePlanner()
         self.refactor_agent = RefactorAgent()
         self.runtime_feedback_agent = RuntimeFeedbackAgent()  # TODO: implement this module
         self.evolution_agent = EvolutionAgent()
+        self.domain_graph_builder = DomainGraphBuilder()
+        self.spec_graph_builder = SpecGraphBuilder()
+        self.semantic_code_graph_builder = SemanticCodeGraphBuilder()       
         # compile error learning memory
         try:
             self.compile_memory = CompileMemory()
@@ -801,10 +1149,38 @@ class FactoryOrchestrator:
                 domain_model = self.domain_agent.run(factory)
                 domain_model = self.semantic_agent.run(factory, domain_model)
 
+                # ---- TYPE DISCOVERY ENGINE ----
+                try:
+                    from ai.domain.semantic_type_detector import TypeDiscoveryEngine
+
+                    engine = TypeDiscoveryEngine()
+                    discovered = engine.discover(domain_model)
+
+                    if discovered:
+                        dm = domain_model.get("domain_model", domain_model)
+                        dm.setdefault("value_objects", []).extend(discovered)
+
+                        factory.log(
+                            f"🧠 Type discovery created {len(discovered)} value objects"
+                        )
+
+                except Exception as e:
+                    factory.log(f"⚠️ Type discovery skipped: {e}")
+
+
+
                 validate_domain_model(domain_model)
                 factory.log("✅ Domain model validated")
 
                 domain_model = factory.enrich_domain(domain_model)
+                # Keep the local AST type resolver in sync with discovered value objects
+                try:
+                    dm = domain_model.get("domain_model", domain_model)
+                    vo_names = [v.get("name") for v in (dm.get("value_objects", []) or []) if v.get("name")]
+                    if hasattr(factory, "ast_generator") and hasattr(factory.ast_generator, "set_value_objects"):
+                        factory.ast_generator.set_value_objects(vo_names)
+                except Exception:
+                    pass
                 factory.learn_domain(domain_model)
 
                 dm = domain_model.get("domain_model", domain_model)
@@ -824,6 +1200,14 @@ class FactoryOrchestrator:
                     factory.log(f"🧩 Domain graph built ({len(graph)} relations)")
                 except Exception as e:
                     factory.log(f"⚠️ Domain graph skipped: {e}")
+                
+                # ---- SEMANTIC CODE GRAPH BUILD ----
+                try:
+                    semantic_graph = self.semantic_code_graph_builder.build(domain_model)
+                    factory.state.semantic_code_graph = semantic_graph
+                    factory.log(f"🧠 Semantic code graph built ({len(semantic_graph)} entities)")
+                except Exception as e:
+                    factory.log(f"⚠️ Semantic graph skipped: {e}")
 
                 # ---- SPEC GRAPH BUILD ----
                 try:
@@ -903,7 +1287,13 @@ class FactoryOrchestrator:
                 if changed_entities:
                     f.log(f"🧠 Impact analysis detected changes in: {sorted(changed_entities)}")
 
-                    analyzer = ImpactAnalyzer(getattr(f.state, "domain_graph", {}))
+                    graph = getattr(f.state, "semantic_code_graph", None)
+
+                    if not graph:
+                        graph = getattr(f.state, "domain_graph", {})
+
+                    analyzer = ImpactAnalyzer(graph)
+
                     impacted = analyzer.compute_impacted_files(inventory, changed_entities)
 
                     if impacted:
@@ -1021,7 +1411,15 @@ class PipelineState:
         self.domain_model = {}
         self.architecture = {}
         self.domain_graph = {}
+        self.semantic_code_graph = {}
         self.task_graph = []
+
+        # graphs and deterministic planning artifacts
+        self.spec_graph = {}
+        self.deterministic_spec = {}
+        self.code_plan = {}
+
+        # incremental generation signatures
         self.signatures = {}
 
 
@@ -1063,6 +1461,12 @@ class SoftwareFactory:
             self.domain_memory = DomainMemory()
         except Exception:
             self.domain_memory = None
+
+        # local generators and validators (must always exist)
+        self.ast_generator = ASTJavaGenerator()
+        self.field_validator = FieldValidator()
+        self.template_generator = TemplateJavaGenerator()
+        self.structural_guard = StructuralCodeGuard()
 
     # ------------------------------------------------
     def _compile_project(self):
@@ -1168,18 +1572,19 @@ class SoftwareFactory:
 
         if desc == "ID RECORD":
             return (
-                "MODE_ID_RECORD",
-                "domain/ExampleId.java",
+                "MODE_ID",
+                "domain/valueobject/ExampleId.java",
                 (
-                    "GENERATION MODE: MODE_ID_RECORD\n"
+                    "GENERATION MODE: MODE_ID\n"
                     "STRICT RULES (NON-NEGOTIABLE):\n"
-                    "- Use Java record\n"
+                    "- Use final class (NOT record)\n"
                     "- Field name MUST be 'value'\n"
                     "- Field type MUST be UUID\n"
                     "- Implements ValueObject\n"
-                    "- Include canonical constructor validation\n"
-                    "- Throw IllegalArgumentException or Objects.requireNonNull if value is null\n"
-                    "- Include static factory method newId() returning new <Id>(UUID.randomUUID())\n"
+                    "- private final UUID value;\n"
+                    "- Constructor must validate using Objects.requireNonNull(value)\n"
+                    "- Provide method: public UUID value()\n"
+                    "- Provide static factory method: newId() returning new <Id>(UUID.randomUUID())\n"
                     "- NO annotations\n"
                     "- NO frameworks\n"
                     "- NO Lombok\n"
@@ -1331,6 +1736,11 @@ class SoftwareFactory:
             # Enforce correct package (engine-driven, no post-fix)
             self._enforce_expected_package(rel, content)
 
+            # Enforce IDs are final classes (never records)
+            if rel.startswith("domain/valueobject/") and rel.endswith("Id.java"):
+                if re.search(r"\brecord\s+", content):
+                    raise RuntimeError(f"ID value objects must be final classes, not records (found record in {rel})")
+
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content.strip() + "\n", encoding="utf-8")
 
@@ -1437,8 +1847,17 @@ class SoftwareFactory:
             "      <version>${mapstruct.version}</version>\n"
             "    </dependency>\n"
             "  </dependencies>\n\n"
-           "   <build>\n"
+            "  <build>\n"
             "    <plugins>\n"
+            "      <plugin>\n"
+            "        <groupId>org.apache.maven.plugins</groupId>\n"
+            "        <artifactId>maven-compiler-plugin</artifactId>\n"
+            "        <version>3.11.0</version>\n"
+            "        <configuration>\n"
+            "          <release>17</release>\n"
+            "        </configuration>\n"
+            "      </plugin>\n"
+            "\n"
             "      <plugin>\n"
             "        <groupId>org.springframework.boot</groupId>\n"
             "        <artifactId>spring-boot-maven-plugin</artifactId>\n"
@@ -1522,6 +1941,7 @@ class SoftwareFactory:
 
         # --- Context enrichment for LLM ---
         domain_graph = getattr(self.state, "domain_graph", {})
+        semantic_graph = getattr(self.state, "semantic_code_graph", {})
         task_graph = getattr(self.state, "task_graph", [])
 
         # find task dependencies for this file
@@ -1546,6 +1966,7 @@ class SoftwareFactory:
             "base_package": self.base_package,
             "expected_package": self._expected_package_for(rel_path),
             "domain_relations": domain_graph.get(item["entity"], []),
+            "semantic_relations": semantic_graph.get(item["entity"], []),
             "spec_fields": getattr(self.state, "spec_graph", {}).get(item["entity"], {}).get("fields", []),
             "deterministic_spec": getattr(self.state, "deterministic_spec", {}).get(item["entity"], {}),
             "code_plan": getattr(self.state, "code_plan", {}).get(item["entity"], {}),
@@ -1566,6 +1987,116 @@ class SoftwareFactory:
         self.log(f"[{index}/{total}] Fabricating {file_name}")
 
         _, golden_rel, strict = self.resolve_generation_mode(item)
+
+        # ---- AST DETERMINISTIC GENERATION (ANTI-HALLUCINATION) ----
+        try:
+            spec = getattr(self.state, "deterministic_spec", {}).get(item["entity"], {})
+            mode = item.get("description")
+
+            if spec and mode == "ENTITY":
+                fields = spec.get("fields", [])
+                pkg = self._expected_package_for(rel_path)
+                class_name = Path(rel_path).stem
+
+                code = self.ast_generator.generate_class(
+                    pkg,
+                    class_name,
+                    fields,
+                    base_package=self.base_package
+                )
+
+                self.log(f"🧩 AST generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+        except Exception:
+            pass
+
+        # ---- TEMPLATE GENERATION (HYBRID MODE) ----
+        try:
+
+            mode = item.get("description")
+            pkg = self._expected_package_for(rel_path)
+            class_name = Path(rel_path).stem
+            entity = item.get("entity")
+
+            if mode == "JPA_ENTITY":
+
+                code = self.template_generator.generate_jpa_entity(
+                    pkg,
+                    class_name,
+                    item.get("fields", [])
+                )
+
+                try:
+                    code = resolve_imports(code)
+                except Exception:
+                    pass
+
+                self.log(f"🧱 Template generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode == "SERVICE":
+
+                code = self.template_generator.generate_service(
+                    pkg,
+                    class_name,
+                    entity,
+                    self.base_package
+                )
+
+                try:
+                    code = resolve_imports(code)
+                except Exception:
+                    pass
+
+                self.log(f"🧱 Template generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode == "REPOSITORY INTERFACE":
+
+                code = self.template_generator.generate_repository(pkg, entity)
+
+                try:
+                    code = resolve_imports(code)
+                except Exception:
+                    pass
+
+                self.log(f"🧱 Template generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode == "CONTROLLER":
+
+                code = self.template_generator.generate_controller(
+                    pkg,
+                    class_name,
+                    entity,
+                    self.base_package
+                )
+
+                try:
+                    code = resolve_imports(code)
+                except Exception:
+                    pass
+
+                self.log(f"🧱 Template generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+        except Exception:
+            pass
 
         expected_pkg = self._expected_package_for(rel_path)
 
@@ -1628,11 +2159,39 @@ class SoftwareFactory:
 
         # ---- FIELD VALIDATION AGAINST DETERMINISTIC SPEC ----
         try:
-            spec = getattr(self.state, "deterministic_spec", {}).get(item["entity"], {})
-            ok, invalid_fields = self.orchestrator.field_validator.validate(code, spec) if hasattr(self, "orchestrator") else (True, [])
+            mode = item.get("description")
 
-            if not ok:
-                self.log(f"🚫 Invalid fields detected in {file_name}: {invalid_fields}")
+            # validate only domain / dto classes
+            if mode in {"ENTITY", "DTO_REQUEST", "DTO_RESPONSE"}:
+                spec = getattr(self.state, "deterministic_spec", {}).get(item["entity"], {})
+                ok, invalid_fields = self.field_validator.validate(code, spec)
+
+                if not ok:
+                    self.log(f"🚫 Invalid fields detected in {file_name}: {invalid_fields}")
+        except Exception:
+            pass
+
+        # ---- STRUCTURAL GUARD (ANTI-HALLUCINATION) ----
+        try:
+
+            spec = getattr(self.state, "deterministic_spec", {}).get(item["entity"], {})
+
+            issues = self.structural_guard.validate(
+                code,
+                spec,
+                self.base_package
+            )
+
+            if issues:
+                self.log(f"🚫 Structural issues detected in {file_name}: {issues}")
+
+        except Exception:
+            pass
+
+
+        # ---- AUTO IMPORT RESOLUTION ----
+        try:
+            code = resolve_imports(code)
         except Exception:
             pass
 
@@ -1641,7 +2200,6 @@ class SoftwareFactory:
         self.state.signatures[rel_path] = signature
 
     # ------------------------------------------------
-
 
 # ------------------ Entrypoint ------------------
 if __name__ == "__main__":

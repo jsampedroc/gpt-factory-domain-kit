@@ -1,7 +1,5 @@
-# ai/tasks/code_generation_task.py
-
 def build_code_generation_task(path, context_data=None, **kwargs):
-    description = kwargs.get('description') or kwargs.get('desc') or "Generate domain-driven logic."
+    description = kwargs.get('description') or kwargs.get('desc') or "Generate backend logic code."
     ctx = context_data or ""
     base_package = kwargs.get('base_package', 'com.application')
 
@@ -20,14 +18,15 @@ STRICT GAMA ELITE RULES:
    - NEVER use 'javax'.
 
 2. ENUMS:
-   - Import all enums from '{base_package}.domain.shared'.
+   - Import enums from the domain layer under '{base_package}.domain'.
+   - The exact package (shared, enums, valueobject, etc.) must match the project structure inferred from the path.
 
 3. FLAT HEXAGONAL ARCHITECTURE:
-   - Domain entities → '{base_package}.domain.model'
-   - Value object IDs → '{base_package}.domain.valueobject'
-   - Domain repositories → '{base_package}.domain.repository'
-   - JPA entities → '{base_package}.infrastructure.persistence.entity'
-   - Adapters → '{base_package}.infrastructure.persistence.adapter'
+   - Domain entities → '{base_package}.domain.*'
+   - Value object IDs → '{base_package}.domain.*'
+   - Domain repositories → '{base_package}.domain.*'
+   - Infrastructure persistence → '{base_package}.infrastructure.persistence.*'
+   - Adapters → '{base_package}.infrastructure.*'
 
 4. DTO NAMING:
    - Use suffix 'Request' or 'Response'
@@ -51,23 +50,21 @@ ENTITY RULES:
 - NO Lombok
 - Must extend:
 
-    Entity<IdType>
+    Example (generic):
 
-Example:
-
-    public class Child extends Entity<ChildId>
+        public class <EntityName> extends Entity<<EntityName>Id>
 
 CONSTRUCTOR RULES:
 
 - Constructor MUST contain:
   id + all fields from the JSON context.
 
-Example:
+Example (generic):
 
-    public Child(
-        ChildId id,
-        String firstName,
-        String lastName
+    public <EntityName>(
+        <EntityName>Id id,
+        String firstField,
+        String secondField
     )
 
 SOURCE OF TRUTH (JSON MODEL):

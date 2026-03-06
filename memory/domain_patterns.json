@@ -125,5 +125,530 @@
       "GeoLocation"
     ],
     "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "ContactNumber",
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "Address",
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "Address",
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "Email",
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Address",
+      "AllergySeverity"
+    ],
+    "aggregates": [
+      "Child"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Address",
+      "AllergySeverity"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "GeoLocation",
+      "Allergy",
+      "Immunization",
+      "Address"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
   }
 ]

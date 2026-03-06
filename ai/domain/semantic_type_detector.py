@@ -425,7 +425,6 @@ def detect_semantic_types(domain_model):
 
             if field_type in entity_lookup:
 
-                # plural hint (items, orders, children, etc.)
                 if field_name.endswith("s"):
                     domain_graph["cardinalities"].append({
                         "from": name,
@@ -442,32 +441,41 @@ def detect_semantic_types(domain_model):
     dm = detect_aggregate_boundaries(dm)
 
     # ------------------------------------------------
-    # Bounded Context Detection (DDD heuristic)
+    # Bounded Context Detection (Domain‑agnostic heuristic)
     # ------------------------------------------------
     contexts = {}
 
-    CONTEXT_HINTS = {
-        "billing": ["invoice", "payment", "price", "amount", "fee", "billing"],
-        "customer": ["customer", "client", "user", "account", "profile"],
-        "scheduling": ["appointment", "schedule", "booking", "reservation"],
-        "inventory": ["product", "item", "stock", "catalog"],
-        "education": ["student", "child", "teacher", "course", "class"],
-    }
+    aggregates = dm.get("aggregates", [])
 
-    for entity in entities:
-        name = entity.get("name", "")
-        lname = name.lower()
+    # Strategy:
+    # 1. Each aggregate root becomes a potential bounded context
+    # 2. Members of the aggregate belong to that context
+    # 3. If no aggregates exist, fallback to a single "core" context
 
-        for ctx, keywords in CONTEXT_HINTS.items():
-            if any(k in lname for k in keywords):
-                contexts.setdefault(ctx, []).append(name)
-                break
+    for agg in aggregates:
+
+        root = agg.get("aggregate")
+        member = agg.get("member")
+
+        if not root:
+            continue
+
+        ctx_name = root.lower()
+
+        contexts.setdefault(ctx_name, set()).add(root)
+
+        if member:
+            contexts[ctx_name].add(member)
+
+    # fallback when aggregates were not detected
+    if not contexts and entities:
+        contexts["core"] = {e.get("name") for e in entities}
 
     if contexts:
         dm["bounded_contexts"] = [
             {
                 "name": ctx,
-                "entities": ents
+                "entities": sorted(list(ents))
             }
             for ctx, ents in contexts.items()
         ]
@@ -775,7 +783,20 @@ class TypeDiscoveryEngine:
                 ):
                     discovered.append({
                         "name": t,
-                        "fields": []
+                        "fields": [
+                            {
+                                "name": "value",
+                                "type": "String"
+                            }
+                        ]
                     })
+            
+        # ensure discovered value objects always have fields
+        for vo in discovered:
+            if not vo.get("fields"):
+                vo["fields"] = [
+                    {"name": "value", "type": "String"}
+                ]
+                
 
         return discovered

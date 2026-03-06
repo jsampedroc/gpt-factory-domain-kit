@@ -15,12 +15,12 @@ DOMAIN MODEL:
 OUTPUT JSON FORMAT:
 {{
   "nodes": [
-    {{"name":"Child","kind":"Entity"}},
-    {{"name":"AgeGroup","kind":"ENUM"}}
+    {{"name":"EntityA","kind":"Entity"}},
+    {{"name":"EnumType","kind":"ENUM"}}
   ],
   "edges": [
-    {{"from":"Classroom","to":"AgeGroup","type":"USES"}},
-    {{"from":"Invoice","to":"InvoiceStatus","type":"USES"}}
+    {{"from":"EntityA","to":"EnumType","type":"USES"}},
+    {{"from":"EntityB","to":"EntityA","type":"USES"}}
   ]
 }}
 

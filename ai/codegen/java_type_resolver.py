@@ -33,12 +33,22 @@ class JavaTypeResolver:
     def __init__(self, value_objects=None):
         self.value_objects = set(value_objects or [])
 
-    def resolve(self, type_name, base_package):
+    def resolve(self, type_name, base_package, module=None):
 
         if not type_name:
             return None
 
         type_name = type_name.strip()
+
+        # Compute module-aware packages
+        if module:
+            model_pkg = f"{base_package}.{module}.domain.model"
+            vo_pkg = f"{base_package}.{module}.domain.valueobject"
+            shared_pkg = f"{base_package}.{module}.domain.shared"
+        else:
+            model_pkg = f"{base_package}.domain.model"
+            vo_pkg = f"{base_package}.domain.valueobject"
+            shared_pkg = f"{base_package}.domain.shared"
 
         # Remove generic wrappers like List<Child>
         if "<" in type_name and ">" in type_name:
@@ -55,12 +65,12 @@ class JavaTypeResolver:
             return self.JAVA_STD[type_name]
 
         if type_name.endswith("Id"):
-            return f"{base_package}.domain.valueobject.{type_name}"
+            return f"{vo_pkg}.{type_name}"
 
         if type_name.endswith("Status") or type_name.endswith("Type"):
-            return f"{base_package}.domain.shared.{type_name}"
+            return f"{shared_pkg}.{type_name}"
 
         if type_name in self.value_objects:
-            return f"{base_package}.domain.valueobject.{type_name}"
+            return f"{vo_pkg}.{type_name}"
 
-        return f"{base_package}.domain.model.{type_name}"
+        return f"{model_pkg}.{type_name}"

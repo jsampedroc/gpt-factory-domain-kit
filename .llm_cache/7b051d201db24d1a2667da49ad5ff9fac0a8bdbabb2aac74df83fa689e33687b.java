@@ -1,31 +1,31 @@
-package com.preschoolmanagement.parent.domain.valueobject;
+package com.preschoolmanagement.child.domain.valueobject;
 
 import com.preschoolmanagement.domain.shared.ValueObject;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public final class ChildId implements ValueObject {
+public final class AuthorizedPickupId implements ValueObject {
     private final UUID value;
 
-    public ChildId(UUID value) {
-        this.value = Objects.requireNonNull(value, "ChildId value cannot be null");
+    public AuthorizedPickupId(UUID value) {
+        this.value = Objects.requireNonNull(value, "value cannot be null");
     }
 
     public UUID value() {
         return value;
     }
 
-    public static ChildId newId() {
-        return new ChildId(UUID.randomUUID());
+    public static AuthorizedPickupId newId() {
+        return new AuthorizedPickupId(UUID.randomUUID());
     }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        ChildId childId = (ChildId) o;
-        return Objects.equals(value, childId.value);
+        AuthorizedPickupId that = (AuthorizedPickupId) o;
+        return Objects.equals(value, that.value);
     }
 
     @Override
@@ -35,7 +35,7 @@ public final class ChildId implements ValueObject {
 
     @Override
     public String toString() {
-        return "ChildId{" +
+        return "AuthorizedPickupId{" +
                 "value=" + value +
                 '}';
     }

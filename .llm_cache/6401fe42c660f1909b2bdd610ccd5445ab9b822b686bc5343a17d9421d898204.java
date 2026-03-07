@@ -1,4 +1,4 @@
-package com.preschoolmanagement.child.application.dto;
+package com.preschoolmanagement.child.shared.application.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -16,10 +16,13 @@ public class ChildRequest {
     @NotNull
     private LocalDate birthDate;
 
+    @NotNull
     private List<AllergyRequest> allergies;
 
+    @NotNull
     private List<ImmunizationRequest> immunizations;
 
+    @NotNull
     private List<AuthorizedPickupRequest> authorizedPickups;
 
     public ChildRequest() {

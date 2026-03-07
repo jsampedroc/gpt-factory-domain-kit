@@ -1424,13 +1424,11 @@ class SoftwareFactory:
 
         for module_name, module_data in modules.items():
             for entity in module_data.get("entities", []):
-
                 if entity in entity_module:
                     continue  # prevent duplicates across modules
-
                 entity_module[entity] = module_name
 
-                seen_entities = set()
+        seen_entities = set()
 
         entity_map = {e.get("name"): e for e in dm.get("entities", [])}
 
@@ -1453,15 +1451,15 @@ class SoftwareFactory:
             })
 
         layers = [
-            ("domain/model", "{name}.java", "ENTITY"),
             ("domain/valueobject", "{name}Id.java", "ID RECORD"),
+            ("domain/model", "{name}.java", "ENTITY"),
             ("domain/repository", "{name}Repository.java", "REPOSITORY INTERFACE"),
             ("domain/service", "{name}DomainService.java", "DOMAIN SERVICE"),
 
             ("application/usecase", "{name}UseCase.java", "USECASE"),
-            ("application/dto", "{name}Request.java", "DTO_REQUEST"),
-            ("application/dto", "{name}Response.java", "DTO_RESPONSE"),
-            ("application/mapper", "{name}Mapper.java", "MAPPER"),
+            ("shared/application/dto", "{name}Request.java", "DTO_REQUEST"),
+            ("shared/application/dto", "{name}Response.java", "DTO_RESPONSE"),
+            ("shared/application/mapper", "{name}Mapper.java", "MAPPER"),
 
             ("infrastructure/persistence/entity", "{name}JpaEntity.java", "JPA_ENTITY"),
             ("infrastructure/persistence/spring", "SpringData{name}Repository.java", "SPRING_DATA_REPOSITORY"),
@@ -1474,16 +1472,16 @@ class SoftwareFactory:
 
         for entity_name, module_name in entity_module.items():
 
+            if entity_name in seen_entities:
+                continue
+
+            seen_entities.add(entity_name)
+
             ent = entity_map.get(entity_name)
             if not ent:
                 continue
 
-            for entity_name, module_name in entity_module.items():
-
-                if entity_name in seen_entities:
-                    continue
-
-                seen_entities.add(entity_name)
+            for folder, tpl, desc in layers:
 
                 rel_path = f"modules/{module_name}/{folder}/{tpl.format(name=entity_name)}"
 
@@ -1529,6 +1527,12 @@ class SoftwareFactory:
                 return 8
 
             return 50
+
+        # ---- DUPLICATE PATH GUARD ----
+        paths = [i.get("path") for i in inventory]
+        dup = [p for p in set(paths) if paths.count(p) > 1]
+        if dup:
+            raise RuntimeError(f"Duplicate inventory paths detected: {dup}")
 
         inventory = sorted(inventory, key=_order_key)
 
@@ -1738,13 +1742,19 @@ class SoftwareFactory:
                 fields = item.get("fields", [])
 
                 pkg = self._expected_package_for(rel_path)
+
+                # ensure entities are generated inside the module package
+                if module:
+                    pkg = f"{self.base_package}.{module}.domain.model"
+
                 class_name = Path(rel_path).stem
 
                 code = self.ast_generator.generate_class(
                     pkg,
                     class_name,
                     fields,
-                    base_package=self.base_package
+                    base_package=self.base_package,
+                    module=module
                 )
 
                 self.log(f"🧩 AST generator used for {class_name}")
@@ -1776,7 +1786,8 @@ class SoftwareFactory:
                         code,
                         item.get("fields", []),
                         self.base_package,
-                        module
+                        module,
+                        valueobject_package=f"{self.base_package}.domain.valueobject"
                     )
                 except Exception:
                     pass
@@ -1801,7 +1812,8 @@ class SoftwareFactory:
                         code,
                         item.get("fields", []),
                         self.base_package,
-                        module
+                        module,
+                        valueobject_package=f"{self.base_package}.domain.valueobject"
                     )
                 except Exception:
                     pass
@@ -1821,7 +1833,8 @@ class SoftwareFactory:
                         code,
                         item.get("fields", []),
                         self.base_package,
-                        module
+                        module,
+                        valueobject_package=f"{self.base_package}.domain.valueobject"
                     )
                 except Exception:
                     pass
@@ -1846,7 +1859,8 @@ class SoftwareFactory:
                         code,
                         item.get("fields", []),
                         self.base_package,
-                        module
+                        module,
+                        valueobject_package=f"{self.base_package}.domain.valueobject"
                     )
                 except Exception:
                     pass
@@ -1963,7 +1977,8 @@ class SoftwareFactory:
                 code,
                 item.get("fields", []),
                 self.base_package,
-                module
+                module,
+                valueobject_package=f"{self.base_package}.domain.valueobject"
             )
         except Exception:
             pass

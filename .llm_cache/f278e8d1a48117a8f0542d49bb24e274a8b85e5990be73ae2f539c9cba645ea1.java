@@ -1,4 +1,4 @@
-package com.preschoolmanagement.child.application.dto;
+package com.preschoolmanagement.child.shared.application.dto;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -32,11 +32,31 @@ public class ChildResponse {
         this.authorizedPickups = authorizedPickups;
     }
 
-    public UUID id() { return id; }
-    public String firstName() { return firstName; }
-    public String lastName() { return lastName; }
-    public LocalDate birthDate() { return birthDate; }
-    public List<AllergyResponse> allergies() { return allergies; }
-    public List<ImmunizationResponse> immunizations() { return immunizations; }
-    public List<AuthorizedPickupResponse> authorizedPickups() { return authorizedPickups; }
+    public UUID id() {
+        return id;
+    }
+
+    public String firstName() {
+        return firstName;
+    }
+
+    public String lastName() {
+        return lastName;
+    }
+
+    public LocalDate birthDate() {
+        return birthDate;
+    }
+
+    public List<AllergyResponse> allergies() {
+        return allergies;
+    }
+
+    public List<ImmunizationResponse> immunizations() {
+        return immunizations;
+    }
+
+    public List<AuthorizedPickupResponse> authorizedPickups() {
+        return authorizedPickups;
+    }
 }

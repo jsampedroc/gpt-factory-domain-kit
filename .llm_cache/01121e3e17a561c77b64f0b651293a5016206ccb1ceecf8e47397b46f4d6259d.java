@@ -5,27 +5,27 @@ import com.preschoolmanagement.domain.shared.ValueObject;
 import java.util.Objects;
 import java.util.UUID;
 
-public final class AuthorizedPickupId implements ValueObject {
+public final class AllergyId implements ValueObject {
     private final UUID value;
 
-    public AuthorizedPickupId(UUID value) {
-        this.value = Objects.requireNonNull(value, "value must not be null");
+    public AllergyId(UUID value) {
+        this.value = Objects.requireNonNull(value, "ID value cannot be null");
     }
 
     public UUID value() {
         return value;
     }
 
-    public static AuthorizedPickupId newId() {
-        return new AuthorizedPickupId(UUID.randomUUID());
+    public static AllergyId newId() {
+        return new AllergyId(UUID.randomUUID());
     }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        AuthorizedPickupId that = (AuthorizedPickupId) o;
-        return Objects.equals(value, that.value);
+        AllergyId allergyId = (AllergyId) o;
+        return Objects.equals(value, allergyId.value);
     }
 
     @Override
@@ -35,7 +35,7 @@ public final class AuthorizedPickupId implements ValueObject {
 
     @Override
     public String toString() {
-        return "AuthorizedPickupId{" +
+        return "AllergyId{" +
                 "value=" + value +
                 '}';
     }

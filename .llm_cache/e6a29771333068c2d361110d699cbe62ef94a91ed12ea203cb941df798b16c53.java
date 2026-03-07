@@ -1,4 +1,4 @@
-package com.preschoolmanagement.parent.application.dto;
+package com.preschoolmanagement.parent.shared.application.dto;
 
 import java.util.List;
 import java.util.UUID;

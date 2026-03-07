@@ -1,4 +1,4 @@
-package com.preschoolmanagement.child.application.mapper;
+package com.preschoolmanagement.child.shared.application.mapper;
 
 import com.preschoolmanagement.child.application.dto.ChildRequest;
 import com.preschoolmanagement.child.application.dto.ChildResponse;

@@ -1,4 +1,4 @@
-package com.preschoolmanagement.parent.application.dto;
+package com.preschoolmanagement.parent.shared.application.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
@@ -14,13 +14,14 @@ public class ParentRequest {
     @NotBlank
     private String contactNumber;
 
-    private Address address;
+    private AddressRequest address;
+
     private List<ChildRequest> children;
 
     public ParentRequest() {
     }
 
-    public ParentRequest(String firstName, String lastName, String contactNumber, Address address, List<ChildRequest> children) {
+    public ParentRequest(String firstName, String lastName, String contactNumber, AddressRequest address, List<ChildRequest> children) {
         this.firstName = firstName;
         this.lastName = lastName;
         this.contactNumber = contactNumber;
@@ -40,7 +41,7 @@ public class ParentRequest {
         return contactNumber;
     }
 
-    public Address address() {
+    public AddressRequest address() {
         return address;
     }
 

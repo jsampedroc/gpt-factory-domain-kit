@@ -30,7 +30,7 @@ class ASTJavaGenerator:
         parts = [p.strip() for p in inner.split(",")]
         return outer.strip(), parts
 
-    def generate_class(self, package_name, class_name, fields, base_package=None):
+    def generate_class(self, package_name, class_name, fields, base_package=None, module=None):
 
         entity_id_type = f"{class_name}Id"
 
@@ -51,22 +51,37 @@ class ASTJavaGenerator:
             if not t:
                 continue
 
+            # Handle generic types like List<Child>
             if "<" in t:
 
                 outer, inner_types = self._split_generic(t)
 
-                imp = self.resolver.resolve(outer, base_package)
-                if imp and not imp.startswith(package_name):
-                    imports.add(imp)
+                # Resolve standard Java imports
+                if outer in self.JAVA_STD_IMPORTS:
+                    imports.add(self.JAVA_STD_IMPORTS[outer])
+                else:
+                    imp = self.resolver.resolve(outer, base_package, module)
+                    if imp and not imp.startswith(package_name):
+                        imports.add(imp)
 
                 for inner in inner_types:
-                    imp = self.resolver.resolve(inner, base_package)
+
+                    if inner in self.JAVA_STD_IMPORTS:
+                        imports.add(self.JAVA_STD_IMPORTS[inner])
+                        continue
+
+                    imp = self.resolver.resolve(inner, base_package, module)
                     if imp and not imp.startswith(package_name):
                         imports.add(imp)
 
             else:
 
-                imp = self.resolver.resolve(t, base_package)
+                # Standard Java types
+                if t in self.JAVA_STD_IMPORTS:
+                    imports.add(self.JAVA_STD_IMPORTS[t])
+                    continue
+
+                imp = self.resolver.resolve(t, base_package, module)
                 if imp and not imp.startswith(package_name):
                     imports.add(imp)
 

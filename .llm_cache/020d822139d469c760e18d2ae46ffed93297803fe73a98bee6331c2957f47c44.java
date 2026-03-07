@@ -1,4 +1,4 @@
-package com.preschoolmanagement.child.application.dto;
+package com.preschoolmanagement.child.shared.application.dto;
 
 import jakarta.validation.constraints.NotBlank;
 
@@ -8,18 +8,17 @@ public class AuthorizedPickupRequest {
 
     private String lastName;
 
-    private String relationship;
+    private String relationshipToChild;
 
-    @NotBlank
     private String contactNumber;
 
     public AuthorizedPickupRequest() {
     }
 
-    public AuthorizedPickupRequest(String firstName, String lastName, String relationship, String contactNumber) {
+    public AuthorizedPickupRequest(String firstName, String lastName, String relationshipToChild, String contactNumber) {
         this.firstName = firstName;
         this.lastName = lastName;
-        this.relationship = relationship;
+        this.relationshipToChild = relationshipToChild;
         this.contactNumber = contactNumber;
     }
 
@@ -31,8 +30,8 @@ public class AuthorizedPickupRequest {
         return lastName;
     }
 
-    public String relationship() {
-        return relationship;
+    public String relationshipToChild() {
+        return relationshipToChild;
     }
 
     public String contactNumber() {

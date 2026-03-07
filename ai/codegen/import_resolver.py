@@ -3,11 +3,6 @@ import re
 
 JAVA_TYPES = {
     "String",
-    "UUID",
-    "LocalDate",
-    "LocalDateTime",
-    "Instant",
-    "BigDecimal",
     "Integer",
     "Long",
     "Double",
@@ -87,8 +82,12 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
 
     imports = set()
 
-    domain_model_pkg = f"{base_package}.{module}.domain.model"
-    domain_vo_pkg = f"{base_package}.{module}.domain.valueobject"
+    if module:
+        domain_model_pkg = f"{base_package}.{module}.domain.model"
+        domain_vo_pkg = f"{base_package}.{module}.domain.valueobject"
+    else:
+        domain_model_pkg = f"{base_package}.domain.model"
+        domain_vo_pkg = f"{base_package}.domain.valueobject"
 
     for field in fields:
 
@@ -112,9 +111,6 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
 
             typ = _extract_outer_type(typ)
 
-            if typ in JAVA_TYPES:
-                continue
-
             if typ in JAVA_TIME_IMPORTS:
                 imports.add(f"import {JAVA_TIME_IMPORTS[typ]};")
                 continue
@@ -127,12 +123,16 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
                 imports.add(f"import {JAVA_MATH_IMPORTS[typ]};")
                 continue
 
+            if typ in JAVA_TYPES:
+                continue
+
             if typ.endswith("Id"):
                 imports.add(f"import {domain_vo_pkg}.{typ};")
                 continue
 
-            if typ not in JAVA_COLLECTIONS:
-                imports.add(f"import {domain_model_pkg}.{typ};")
+            if typ not in JAVA_COLLECTIONS and typ not in JAVA_TYPES:
+                if typ[0].isupper():
+                    imports.add(f"import {domain_model_pkg}.{typ};")
 
     if not imports:
         return code

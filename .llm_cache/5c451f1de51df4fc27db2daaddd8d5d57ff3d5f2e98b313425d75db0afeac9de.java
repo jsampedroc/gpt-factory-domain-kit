@@ -1,8 +1,8 @@
 package com.preschoolmanagement.parent.infrastructure.persistence.adapter;
 
-import com.preschoolmanagement.domain.model.Child;
-import com.preschoolmanagement.domain.repository.ChildRepository;
-import com.preschoolmanagement.domain.valueobject.ChildId;
+import com.preschoolmanagement.parent.domain.model.Child;
+import com.preschoolmanagement.parent.domain.repository.ChildRepository;
+import com.preschoolmanagement.parent.domain.valueobject.ChildId;
 import com.preschoolmanagement.parent.infrastructure.persistence.entity.ChildJpaEntity;
 import com.preschoolmanagement.parent.infrastructure.persistence.spring.SpringDataChildRepository;
 import org.springframework.stereotype.Repository;

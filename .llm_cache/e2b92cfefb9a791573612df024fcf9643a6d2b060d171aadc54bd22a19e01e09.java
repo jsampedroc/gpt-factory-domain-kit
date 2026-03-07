@@ -7,7 +7,7 @@ import java.util.Objects;
 
 public record Immunization(
         @NotBlank(message = "Immunization value cannot be blank")
-        @Size(max = 255, message = "Immunization value cannot exceed 255 characters")
+        @Size(max = 255, message = "Immunization value must not exceed 255 characters")
         String value
 ) implements ValueObject {
 
@@ -17,7 +17,7 @@ public record Immunization(
             throw new IllegalArgumentException("Immunization value cannot be blank");
         }
         if (value.length() > 255) {
-            throw new IllegalArgumentException("Immunization value cannot exceed 255 characters");
+            throw new IllegalArgumentException("Immunization value must not exceed 255 characters");
         }
     }
 }

@@ -7,7 +7,7 @@ import java.util.Objects;
 
 public record Allergy(
         @NotBlank(message = "Allergy value cannot be blank")
-        @Size(max = 100, message = "Allergy value cannot exceed 100 characters")
+        @Size(max = 255, message = "Allergy value cannot exceed 255 characters")
         String value
 ) implements ValueObject {
 
@@ -16,8 +16,8 @@ public record Allergy(
         if (value.isBlank()) {
             throw new IllegalArgumentException("Allergy value cannot be blank");
         }
-        if (value.length() > 100) {
-            throw new IllegalArgumentException("Allergy value cannot exceed 100 characters");
+        if (value.length() > 255) {
+            throw new IllegalArgumentException("Allergy value cannot exceed 255 characters");
         }
     }
 }

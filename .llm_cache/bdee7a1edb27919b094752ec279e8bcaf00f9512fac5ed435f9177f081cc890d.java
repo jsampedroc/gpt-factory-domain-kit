@@ -1,34 +1,26 @@
 package com.preschoolmanagement.parent.application.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import com.preschoolmanagement.domain.valueobject.Address;
-import com.preschoolmanagement.child.domain.model.Child;
 import java.util.List;
 
 public class ParentRequest {
 
     @NotBlank
-    private final String firstName;
+    private String firstName;
 
     @NotBlank
-    private final String lastName;
+    private String lastName;
 
     @NotBlank
-    private final String contactNumber;
+    private String contactNumber;
 
-    @NotNull
-    private final Address address;
+    private Address address;
+    private List<ChildRequest> children;
 
-    @NotNull
-    private final List<Child> children;
+    public ParentRequest() {
+    }
 
-    public ParentRequest(
-            String firstName,
-            String lastName,
-            String contactNumber,
-            Address address,
-            List<Child> children) {
+    public ParentRequest(String firstName, String lastName, String contactNumber, Address address, List<ChildRequest> children) {
         this.firstName = firstName;
         this.lastName = lastName;
         this.contactNumber = contactNumber;
@@ -52,7 +44,7 @@ public class ParentRequest {
         return address;
     }
 
-    public List<Child> children() {
+    public List<ChildRequest> children() {
         return children;
     }
 }

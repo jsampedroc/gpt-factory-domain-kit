@@ -31,17 +31,38 @@ STRICT GAMA ELITE RULES:
 4. DTO NAMING:
    - Use suffix 'Request' or 'Response'
 
-CRITICAL DOMAIN RULES (NON-NEGOTIABLE):
+5. DTO ISOLATION RULES (CRITICAL):
 
-1. If the JSON context contains a "fields" array, the class MUST declare ALL fields.
-2. Each field MUST:
-   - be declared as `private final`
-   - appear in the constructor
-   - expose a value-style getter (example: `fieldName()`).
+- DTOs MUST NOT reference domain entities.
+- DTO fields MUST use ONLY:
+    - Java primitives (int, long, boolean, etc.)
+    - Standard Java types (String, UUID, LocalDate, Instant, etc.)
+    - Collections of primitives (List<String>, List<UUID>, etc.)
+    - Other DTOs (ChildRequest, ChildResponse, etc.)
 
-3. DO NOT invent fields.
-4. DO NOT omit fields.
-5. If "fields" exist and they are not implemented, the output is INVALID.
+- NEVER use domain entities inside DTOs.
+
+INVALID EXAMPLE:
+    List<Child>
+
+VALID EXAMPLES:
+    List<UUID>
+    List<ChildRequest>
+
+DTO GENERATION RULES:
+
+If the file being generated ends with:
+- Request
+- Response
+
+then the class MUST be a plain DTO:
+
+- private final fields
+- full constructor
+- value-style getters (fieldName())
+- NO domain entity imports
+- NO JPA annotations
+- NO business logic
 
 ENTITY RULES:
 

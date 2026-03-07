@@ -56,6 +56,7 @@ from ai.domain.semantic_type_detector import TypeDiscoveryEngine
 from ai.domain.semantic_type_detector import detect_semantic_types
 
 from ai.domain.aggregate_lifecycle_agent import AggregateLifecycleAgent
+from ai.codegen.deterministic_skeleton_builder import DeterministicSkeletonBuilder
 
 # ---- AGGREGATE & BOUNDED CONTEXT DETECTORS ----
 from ai.domain.aggregate_detector import AggregateDetector
@@ -517,6 +518,8 @@ class FactoryOrchestrator:
         self.factory = factory
         self.project_planner = ProjectPlannerAgent()
         self.domain_agent = DomainAgent()
+        # Skeleton builder must receive the SoftwareFactory instance, not the orchestrator
+        self.skeleton_builder = DeterministicSkeletonBuilder(factory)
         self.semantic_agent = SemanticAgent()
         self.aggregate_detector = AggregateDetector()
         self.bounded_context_detector = BoundedContextDetector()
@@ -789,6 +792,9 @@ class FactoryOrchestrator:
             pipeline.run(f)
 
         inventory = f.state.architecture["file_inventory"]
+
+        # Generate deterministic skeletons first
+        self.skeleton_builder.build(inventory)
 
         # ---- IMPACT ANALYSIS ----
         try:
@@ -1400,18 +1406,27 @@ class SoftwareFactory:
 
         inventory = []
 
-        # el modelo puede venir como {domain_model:{...}}
+        # unwrap if needed
         dm = model.get("domain_model", model)
 
-        modules = dm.get("modules")
+        modules = dm.get("modules") or {}
 
-        # fallback si aún no hay módulos
+        # fallback when modules not defined
         if not modules:
             modules = {
                 "core": {
                     "entities": [e.get("name") for e in dm.get("entities", [])]
                 }
             }
+
+        # map entity -> module (first module wins)
+        entity_module = {}
+        for module_name, module_data in modules.items():
+            for entity in module_data.get("entities", []):
+                if entity not in entity_module:
+                    entity_module[entity] = module_name
+
+        entity_map = {e.get("name"): e for e in dm.get("entities", [])}
 
         # ---------------- ENUMS ----------------
         for enum in dm.get("global_enums", []):
@@ -1431,7 +1446,6 @@ class SoftwareFactory:
                 "fields": vo.get("fields", []),
             })
 
-        # ---------------- ARCHITECTURE LAYERS ----------------
         layers = [
             ("domain/model", "{name}.java", "ENTITY"),
             ("domain/valueobject", "{name}Id.java", "ID RECORD"),
@@ -1450,33 +1464,33 @@ class SoftwareFactory:
             ("infrastructure/rest", "{name}Controller.java", "CONTROLLER"),
         ]
 
-        # mapa rápido de entidades
-        entity_map = {e.get("name"): e for e in dm.get("entities", [])}
+        seen = set()
 
-        # ---------------- MODULE BASED GENERATION ----------------
-        for module_name, module_data in modules.items():
+        for entity_name, module_name in entity_module.items():
 
-            module_entities = module_data.get("entities", [])
+            ent = entity_map.get(entity_name)
+            if not ent:
+                continue
 
-            for entity_name in module_entities:
+            for folder, tpl, desc in layers:
 
-                ent = entity_map.get(entity_name)
+                rel_path = f"modules/{module_name}/{folder}/{tpl.format(name=entity_name)}"
 
-                if not ent:
+                if rel_path in seen:
                     continue
 
-                for folder, tpl, desc in layers:
+                seen.add(rel_path)
 
-                    inventory.append({
-                        "path": f"modules/{module_name}/{folder}/{tpl.format(name=entity_name)}",
-                        "entity": entity_name,
-                        "description": desc,
-                        "fields": ent.get("fields", []),
-                    })
+                inventory.append({
+                    "path": rel_path,
+                    "entity": entity_name,
+                    "description": desc,
+                    "module": module_name,
+                    "fields": ent.get("fields", []),
+                })
 
-        # ---------------- DETERMINISTIC ORDER ----------------
+        # deterministic ordering
         def _order_key(item):
-
             path = item.get("path", "")
 
             if "domain/valueobject/" in path and not path.endswith("Id.java"):
@@ -1499,7 +1513,7 @@ class SoftwareFactory:
 
             if "/infrastructure/persistence/" in path:
                 return 7
-            
+
             if "/infrastructure/rest/" in path:
                 return 8
 
@@ -1659,14 +1673,15 @@ class SoftwareFactory:
                 deps = t.get("depends_on", []) or []
                 break
 
+        # --- Use deterministic module/layer detection from inventory metadata ---
+        module = item.get("module")
+
         parts = rel_path.split("/")
 
-        # Detect modular structure: modules/<module>/...
+        # fallback layer detection only
         if parts and parts[0] == "modules" and len(parts) >= 3:
-            module = parts[1]
             layer = parts[2]
         else:
-            module = None
             layer = parts[0] if parts else None
 
         context_payload = json.dumps({

@@ -4,34 +4,28 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDate;
 import java.util.List;
-import com.preschoolmanagement.domain.model.Allergy;
-import com.preschoolmanagement.domain.model.Immunization;
-import com.preschoolmanagement.domain.model.AuthorizedPickup;
 
 public class ChildRequest {
 
     @NotBlank
-    private final String firstName;
+    private String firstName;
 
     @NotBlank
-    private final String lastName;
+    private String lastName;
 
     @NotNull
-    private final LocalDate birthDate;
+    private LocalDate birthDate;
 
-    private final List<Allergy> allergies;
+    private List<AllergyRequest> allergies;
 
-    private final List<Immunization> immunizations;
+    private List<ImmunizationRequest> immunizations;
 
-    private final List<AuthorizedPickup> authorizedPickups;
+    private List<AuthorizedPickupRequest> authorizedPickups;
 
-    public ChildRequest(
-            String firstName,
-            String lastName,
-            LocalDate birthDate,
-            List<Allergy> allergies,
-            List<Immunization> immunizations,
-            List<AuthorizedPickup> authorizedPickups) {
+    public ChildRequest() {
+    }
+
+    public ChildRequest(String firstName, String lastName, LocalDate birthDate, List<AllergyRequest> allergies, List<ImmunizationRequest> immunizations, List<AuthorizedPickupRequest> authorizedPickups) {
         this.firstName = firstName;
         this.lastName = lastName;
         this.birthDate = birthDate;
@@ -40,27 +34,27 @@ public class ChildRequest {
         this.authorizedPickups = authorizedPickups;
     }
 
-    public String getFirstName() {
+    public String firstName() {
         return firstName;
     }
 
-    public String getLastName() {
+    public String lastName() {
         return lastName;
     }
 
-    public LocalDate getBirthDate() {
+    public LocalDate birthDate() {
         return birthDate;
     }
 
-    public List<Allergy> getAllergies() {
+    public List<AllergyRequest> allergies() {
         return allergies;
     }
 
-    public List<Immunization> getImmunizations() {
+    public List<ImmunizationRequest> immunizations() {
         return immunizations;
     }
 
-    public List<AuthorizedPickup> getAuthorizedPickups() {
+    public List<AuthorizedPickupRequest> authorizedPickups() {
         return authorizedPickups;
     }
 }

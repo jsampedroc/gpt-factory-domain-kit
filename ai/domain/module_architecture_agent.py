@@ -25,25 +25,32 @@ class ModuleArchitectureAgent:
 
         modules = {}
 
-        # If bounded contexts exist, convert them to modules
-        if contexts:
+        # Map entity names for validation
+        entity_names = {e.get("name") for e in entities if e.get("name")}
 
+        if contexts:
             for ctx in contexts:
 
                 name = ctx.get("name")
-                ents = ctx.get("entities", [])
+                ctx_entities = ctx.get("entities", [])
 
                 if not name:
                     continue
 
-                modules[name] = {
-                    "entities": ents
+                # keep only valid entity names
+                filtered_entities = [e for e in ctx_entities if e in entity_names]
+
+                if not filtered_entities:
+                    continue
+
+                modules[name.lower()] = {
+                    "entities": filtered_entities
                 }
 
-        else:
-            # fallback: single neutral module
+        # deterministic fallback
+        if not modules:
             modules["core"] = {
-                "entities": [e.get("name") for e in entities]
+                "entities": sorted(entity_names)
             }
 
         dm["modules"] = modules

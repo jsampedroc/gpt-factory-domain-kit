@@ -18,6 +18,7 @@ from ai.pipeline.task_executor import TaskExecutor
 from ai.pipeline.pipeline_engine import PipelineEngine, PipelineStep
 from ai.utils.logging_helper import Tee
 from ai.utils.architecture_logger import ArchitectureLogger
+from ai.debug.pipeline_trace_logger import PipelineTraceLogger
 from ai.validators.layer_contracts import LayerContracts
 
 from ai.validators.structural_code_guard import StructuralCodeGuard
@@ -577,6 +578,13 @@ class FactoryOrchestrator:
             setattr(f, "compile_memory", self.compile_memory)
 
         f.log("🧠 Orchestrator starting")
+
+        try:
+            if getattr(f, "trace_logger", None):
+                f.trace_logger.log_step("START", {"idea": f.idea})
+        except Exception:
+            pass
+
         # ---- BOOTSTRAP (project skeleton) ----
         f._bootstrap_pom()
         f._bootstrap_domain_kernel()
@@ -686,6 +694,13 @@ class FactoryOrchestrator:
                 validate_domain_model(domain_model)
                 factory.log("✅ Domain model validated")
 
+                try:
+                    if getattr(factory, "trace_logger", None):
+                        factory.trace_logger.log_step("DOMAIN_MODEL_VALIDATED", domain_model)
+                except Exception:
+                    pass
+
+
                 domain_model = factory.enrich_domain(domain_model)
                 # Keep the local AST type resolver in sync with discovered value objects
                 try:
@@ -715,6 +730,14 @@ class FactoryOrchestrator:
                     graph = self.domain_graph_builder.build(domain_model)
                     factory.state.domain_graph = graph
                     factory.log(f"🧩 Domain graph built ({len(graph)} relations)")
+
+                    try:
+                        if getattr(factory, "trace_logger", None):
+                            factory.trace_logger.log_step("DOMAIN_GRAPH", graph)
+                    except Exception:
+                        pass
+
+
                 except Exception as e:
                     factory.log(f"⚠️ Domain graph skipped: {e}")
                 
@@ -723,6 +746,13 @@ class FactoryOrchestrator:
                     semantic_graph = self.semantic_code_graph_builder.build(domain_model)
                     factory.state.semantic_code_graph = semantic_graph
                     factory.log(f"🧠 Semantic code graph built ({len(semantic_graph)} entities)")
+
+                    try:
+                        if getattr(factory, "trace_logger", None):
+                            factory.trace_logger.log_step("SEMANTIC_CODE_GRAPH", semantic_graph)
+                    except Exception:
+                        pass
+
                 except Exception as e:
                     factory.log(f"⚠️ Semantic graph skipped: {e}")
 
@@ -1090,6 +1120,12 @@ class SoftwareFactory:
         self.template_generator = TemplateJavaGenerator()
         self.structural_guard = StructuralCodeGuard()
         self.architecture_logger = ArchitectureLogger()
+
+        # ---- PIPELINE TRACE LOGGER ----
+        try:
+            self.trace_logger = PipelineTraceLogger(self.output_root)
+        except Exception:
+            self.trace_logger = None
 
     # ------------------------------------------------
     def _compile_project(self):
@@ -1490,12 +1526,17 @@ class SoftwareFactory:
 
                 seen.add(rel_path)
 
+                item_fields = ent.get("fields", [])
+
+                if desc == "ID RECORD":
+                    item_fields = [{"name": "value", "type": "UUID"}]
+
                 inventory.append({
                     "path": rel_path,
                     "entity": entity_name,
                     "description": desc,
                     "module": module_name,
-                    "fields": ent.get("fields", []),
+                    "fields": item_fields,
                 })
 
         # deterministic ordering
@@ -1804,7 +1845,8 @@ class SoftwareFactory:
                     pkg,
                     class_name,
                     entity,
-                    self.base_package
+                    self.base_package,
+                    module=module
                 )
 
                 try:
@@ -1826,7 +1868,12 @@ class SoftwareFactory:
 
             if mode == "REPOSITORY INTERFACE":
 
-                code = self.template_generator.generate_repository(pkg, entity)
+                code = self.template_generator.generate_repository(
+                    pkg,
+                    entity,
+                    base_package=self.base_package,
+                    module=module
+                )
 
                 try:
                     code = resolve_imports(
@@ -1851,7 +1898,8 @@ class SoftwareFactory:
                     pkg,
                     class_name,
                     entity,
-                    self.base_package
+                    self.base_package,
+                    module=module
                 )
 
                 try:

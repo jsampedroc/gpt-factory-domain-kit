@@ -198,12 +198,19 @@ def detect_semantic_types(domain_model):
     # Some LLMs wrap the model as { "domain_model": {...} }
     dm = domain_model.get("domain_model", domain_model)
 
+    # Normalize value object key names coming from different agents / LLM outputs
+    if "valueObjects" in dm and "value_objects" not in dm:
+        dm["value_objects"] = dm.pop("valueObjects")
+
+    dm.setdefault("value_objects", [])
+
     entities = dm.get("entities", [])
 
     # existing VO definitions
-    existing_vos = {
-        vo["name"]: vo for vo in dm.get("value_objects", [])
-    }
+    existing_vos = {}
+    for vo in dm.get("value_objects", []):
+        if isinstance(vo, dict) and vo.get("name"):
+            existing_vos[vo["name"]] = vo
 
     for entity in entities:
 
@@ -690,26 +697,29 @@ def detect_semantic_types(domain_model):
         discovered = engine.discover(dm)
 
         if discovered:
-
-            existing = {v["name"] for v in dm.get("value_objects", [])}
-
             for vo in discovered:
-                if vo["name"] not in existing:
-                    dm.setdefault("value_objects", []).append({
+                if vo["name"] not in existing_vos:
+                    existing_vos[vo["name"]] = {
                         "name": vo["name"],
-                        "fields": [
+                        "fields": vo.get("fields") or [
                             {"name": "value", "type": "String"}
                         ],
                         "description": "Auto-discovered value object"
-                    })
+                    }
 
     except Exception:
         pass
 
     
-    # ensure deterministic order
+    # ensure deterministic order and guarantee VO structure
+    normalized_vos = []
+    for vo in existing_vos.values():
+        if not vo.get("fields"):
+            vo["fields"] = [{"name": "value", "type": "String"}]
+        normalized_vos.append(vo)
+
     dm["value_objects"] = sorted(
-        existing_vos.values(),
+        normalized_vos,
         key=lambda v: v.get("name", "")
     )
 
@@ -741,6 +751,10 @@ def detect_semantic_types(domain_model):
 
     # Update domain knowledge cache so the factory learns from this model
     update_knowledge(dm)
+
+    # Final cleanup: ensure legacy key is not present
+    if "valueObjects" in dm:
+        dm.pop("valueObjects", None)
 
     return domain_model
 

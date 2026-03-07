@@ -13,7 +13,8 @@
     "AllergyLog",
     "ImmunizationRecord",
     "Allergy",
-    "ContactNumber"
+    "ContactNumber",
+    "Immunization"
   ],
   "aggregates": [
     "Order",

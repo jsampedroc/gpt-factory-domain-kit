@@ -11,6 +11,8 @@ specs/
 # Ignorar logs locales de ejecución si no están dentro de outputs
 *.log
 
+.llm
+
 ### --- Python Standard ---
 # Ignorar archivos compilados de Python
 __pycache__/

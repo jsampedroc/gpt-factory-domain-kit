@@ -19,6 +19,8 @@ class ASTJavaGenerator:
         "BigDecimal": "java.math.BigDecimal",
     }
 
+    JAVA_LANG_TYPES = {"String", "Integer", "Long", "Double", "Float", "Boolean"}
+
     def _split_generic(self, t):
         """
         Safe generic parser:
@@ -35,15 +37,18 @@ class ASTJavaGenerator:
         entity_id_type = f"{class_name}Id"
 
         # Avoid duplicated IDs
-        has_id = any(
-            f.get("name") == "id" or f.get("name", "").endswith("Id")
-            for f in fields
-        )
+        has_id = any(f.get("name") == "id" for f in fields)
 
         if not has_id:
             fields = [{"name": "id", "type": entity_id_type}] + list(fields)
 
-        imports = set()
+        # ensure EntityId import exists when auto-added
+        if not has_id and base_package:
+            imp = self.resolver.resolve(entity_id_type, base_package, module)
+            if imp:
+                imports = set([imp])
+        else:
+            imports = set()
 
         for f in fields:
 
@@ -66,23 +71,30 @@ class ASTJavaGenerator:
 
                 for inner in inner_types:
 
+                    if inner in self.JAVA_LANG_TYPES:
+                        continue
+
                     if inner in self.JAVA_STD_IMPORTS:
                         imports.add(self.JAVA_STD_IMPORTS[inner])
                         continue
 
                     imp = self.resolver.resolve(inner, base_package, module)
-                    if imp and not imp.startswith(package_name):
+                    if imp and not imp.startswith(package_name) and inner != class_name:
                         imports.add(imp)
 
             else:
 
-                # Standard Java types
+                # Skip java.lang
+                if t in self.JAVA_LANG_TYPES:
+                    continue
+
+                # Standard Java imports
                 if t in self.JAVA_STD_IMPORTS:
                     imports.add(self.JAVA_STD_IMPORTS[t])
                     continue
 
                 imp = self.resolver.resolve(t, base_package, module)
-                if imp and not imp.startswith(package_name):
+                if imp and not imp.startswith(package_name) and t != class_name:
                     imports.add(imp)
 
         lines = []

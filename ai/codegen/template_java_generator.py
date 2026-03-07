@@ -13,6 +13,7 @@ class TemplateJavaGenerator:
         lines.append("import java.util.UUID;\n\n")
 
         lines.append("@Entity\n")
+        
         lines.append(f"public class {class_name} {{\n\n")
 
         lines.append("    @Id\n")
@@ -28,17 +29,37 @@ class TemplateJavaGenerator:
 
             lines.append(f"    private {type_} {name};\n")
 
+        # constructor
+        lines.append("\n    public " + class_name + "() {}\n")
+
+        # getters
+        for f in fields:
+            name = f.get("name")
+            type_ = f.get("type")
+
+            if name == "id":
+                continue
+
+            method = name[0].upper() + name[1:]
+            lines.append(f"\n    public {type_} get{method}() {{ return this.{name}; }}\n")
+
         lines.append("\n}\n")
 
         return "".join(lines)
 
-    def generate_repository(self, package_name, entity):
+    def generate_repository(self, package_name, entity, base_package=None, module=None):
+
+        if module:
+            model_import = f"{base_package}.{module}.domain.model.{entity}"
+        else:
+            model_import = f"{base_package}.domain.model.{entity}"
 
         return f"""
 package {package_name};
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.UUID;
+import {model_import};
 
 public interface {entity}Repository extends JpaRepository<{entity}, UUID> {{
 
@@ -47,11 +68,18 @@ public interface {entity}Repository extends JpaRepository<{entity}, UUID> {{
 
     def generate_service(self, package_name, class_name, entity, base_package, module=None):
 
+        if module:
+            model_import = f"{base_package}.{module}.domain.model.{entity}"
+            repo_import = f"{base_package}.{module}.domain.repository.{entity}Repository"
+        else:
+            model_import = f"{base_package}.domain.model.{entity}"
+            repo_import = f"{base_package}.domain.repository.{entity}Repository"
+
         return f"""
 package {package_name};
 
-import {base_package}.{module}.domain.model.{entity};
-import {base_package}.{module}.domain.repository.{entity}Repository;
+import {model_import};
+import {repo_import};
 
 public class {class_name} {{
 
@@ -66,10 +94,15 @@ public class {class_name} {{
 
     def generate_controller(self, package_name, class_name, entity, base_package, module=None):
 
+        if module:
+            service_import = f"{base_package}.{module}.application.service.{entity}Service"
+        else:
+            service_import = f"{base_package}.application.service.{entity}Service"
+
         return f"""
 package {package_name};
 
-import {base_package}.{module}.application.service.{entity}Service;
+import {service_import};
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.ResponseEntity;
 import java.util.List;

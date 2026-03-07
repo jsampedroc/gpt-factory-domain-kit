@@ -16,7 +16,8 @@
     "ContactNumber"
   ],
   "aggregates": [
-    "Order"
+    "Order",
+    "Child"
   ],
   "events": [
     "InvoicePaid"

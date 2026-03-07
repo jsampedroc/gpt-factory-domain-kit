@@ -175,6 +175,14 @@ def _is_upgradeable_type(t):
     nt = _normalize_type(t)
     return nt in PRIMITIVE_TYPES
 
+# Helper: Strip generic type wrappers, e.g., List<Allergy> → Allergy
+def _strip_generic(t):
+    if not t:
+        return t
+    if "<" in t and ">" in t:
+        return t.split("<",1)[1].split(">",1)[0].strip()
+    return t
+
 
 # ------------------------------------------------
 # Core semantic enrichment
@@ -385,7 +393,7 @@ def detect_semantic_types(domain_model):
         domain_graph["entities"].append(name)
 
         for field in entity.get("fields", []):
-            ftype = field.get("type")
+            ftype = _strip_generic(field.get("type"))
 
             if ftype in entity_lookup:
                 domain_graph["relations"].append({
@@ -421,7 +429,7 @@ def detect_semantic_types(domain_model):
 
         for field in entity.get("fields", []):
             field_name = field.get("name", "").lower()
-            field_type = field.get("type")
+            field_type = _strip_generic(field.get("type"))
 
             if field_type in entity_lookup:
 
@@ -629,7 +637,7 @@ def detect_semantic_types(domain_model):
     # Entity references unknown type
     for entity in entities:
         for field in entity.get("fields", []):
-            ftype = field.get("type")
+            ftype = _strip_generic(field.get("type"))
 
             # Skip primitive and built‑in types
             if _normalize_type(ftype) in PRIMITIVE_TYPES or ftype in BUILTIN_TYPES:

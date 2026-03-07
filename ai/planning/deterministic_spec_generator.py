@@ -9,9 +9,11 @@ class DeterministicSpecGenerator:
 
         spec = {}
 
-        for ent in dm.get("entities", []):
+        entities = sorted(dm.get("entities", []), key=lambda e: e.get("name", ""))
+
+        for ent in entities:
+            fields = sorted(ent.get("fields", []) or [], key=lambda f: f.get("name", ""))
             name = ent.get("name")
-            fields = ent.get("fields", []) or []
 
             field_names = [f.get("name") for f in fields if f.get("name")]
             field_types = [f.get("type") for f in fields if f.get("type")]

@@ -82,6 +82,18 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
 
     imports = set()
 
+    package_name = None
+    class_name = None
+
+    for line in code.splitlines():
+        line = line.strip()
+        if line.startswith("package "):
+            package_name = line.replace("package ", "").replace(";", "").strip()
+        if line.startswith("public class ") or line.startswith("public record "):
+            parts = line.split()
+            if len(parts) >= 3:
+                class_name = parts[2].split("(")[0]
+
     if module:
         domain_model_pkg = f"{base_package}.{module}.domain.model"
         domain_vo_pkg = f"{base_package}.{module}.domain.valueobject"
@@ -131,8 +143,19 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
                 continue
 
             if typ not in JAVA_COLLECTIONS and typ not in JAVA_TYPES:
-                if typ[0].isupper():
-                    imports.add(f"import {domain_model_pkg}.{typ};")
+                if typ and typ[0].isupper():
+
+                    # do not import the class itself
+                    if class_name and typ == class_name:
+                        continue
+
+                    import_path = f"{domain_model_pkg}.{typ}"
+
+                    # avoid importing classes from the same package
+                    if package_name and import_path.startswith(package_name):
+                        continue
+
+                    imports.add(f"import {import_path};")
 
     if not imports:
         return code

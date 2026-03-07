@@ -578,5 +578,45 @@
   {
     "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
     "fix": "\"package com.preschoolmanagement.child.domain.valueobject;\\n\\nimport com.preschoolmanagement.child.shared.ValueObject;\\n\\npublic record AllergySeverity(String value) implements ValueObject {}\\n\\npackage com.preschoolmanagement.child.domain.valueobject;\\n\\nimport com.preschoolmanagement.child.shared.ValueObject;\\n\\npublic record GeoLocation(String value) implements ValueObject {}\\n\\npackage com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.parent.shared.ValueObj"
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record ParentId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record AddressId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record AddressId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record AddressId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record ParentId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record AddressId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record AddressId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record AddressId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record AddressId(UUID value) implements ValueObject {}\""
+  },
+  {
+    "error": "[ERROR] COMPILATION ERROR : \n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/child/shared/application/dto/ChildRequest.java:[3,8] class Child is public, should be declared in a file named Child.java\n[ERROR] /Users/pe/git/gpt-factory-domain-kit/outputs/preschoolmanagement/backend/src/main/java/com/preschoolmanagement/parent/shared/application/dto/ParentRequest.java:[3,8] class Parent is public, should be declared in a file nam",
+    "fix": "\"package com.preschoolmanagement.parent.domain.valueobject;\\n\\nimport com.preschoolmanagement.domain.shared.ValueObject;\\nimport java.util.UUID;\\n\\npublic record AddressId(UUID value) implements ValueObject {}\""
   }
 ]

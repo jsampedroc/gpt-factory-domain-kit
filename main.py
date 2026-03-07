@@ -1421,10 +1421,16 @@ class SoftwareFactory:
 
         # map entity -> module (first module wins)
         entity_module = {}
+
         for module_name, module_data in modules.items():
             for entity in module_data.get("entities", []):
-                if entity not in entity_module:
-                    entity_module[entity] = module_name
+
+                if entity in entity_module:
+                    continue  # prevent duplicates across modules
+
+                entity_module[entity] = module_name
+
+                seen_entities = set()
 
         entity_map = {e.get("name"): e for e in dm.get("entities", [])}
 
@@ -1472,7 +1478,12 @@ class SoftwareFactory:
             if not ent:
                 continue
 
-            for folder, tpl, desc in layers:
+            for entity_name, module_name in entity_module.items():
+
+                if entity_name in seen_entities:
+                    continue
+
+                seen_entities.add(entity_name)
 
                 rel_path = f"modules/{module_name}/{folder}/{tpl.format(name=entity_name)}"
 

@@ -14,7 +14,8 @@
     "ImmunizationRecord",
     "Allergy",
     "ContactNumber",
-    "Immunization"
+    "Immunization",
+    "AllergySeverity"
   ],
   "aggregates": [
     "Order",

@@ -40,37 +40,52 @@ class JavaTypeResolver:
 
         type_name = type_name.strip()
 
-        # Compute module-aware packages
+        # Normalize possible fully qualified types or generics
+        simple_name = type_name.split(".")[-1]
+
+        # Compute packages
         if module:
             model_pkg = f"{base_package}.{module}.domain.model"
-            vo_pkg = f"{base_package}.{module}.domain.valueobject"
-            shared_pkg = f"{base_package}.{module}.domain.shared"
         else:
             model_pkg = f"{base_package}.domain.model"
-            vo_pkg = f"{base_package}.domain.valueobject"
-            shared_pkg = f"{base_package}.domain.shared"
 
-        # Remove generic wrappers like List<Child>
-        if "<" in type_name and ">" in type_name:
-            type_name = type_name.split("<", 1)[0].strip()
+        # Value objects are module scoped when a module exists
+        if module:
+            vo_pkg = f"{base_package}.{module}.domain.valueobject"
+        else:
+            vo_pkg = f"{base_package}.domain.valueobject"
+
+        # Shared types remain global
+        shared_pkg = f"{base_package}.domain.shared"
+
+        # Handle generic types like List<Child>
+        if "<" in simple_name and ">" in simple_name:
+            simple_name = simple_name.split("<", 1)[0].strip()
 
         # Ignore Java primitives
-        if type_name in {"int", "long", "double", "float", "boolean", "short", "byte", "char"}:
+        if simple_name in {"int", "long", "double", "float", "boolean", "short", "byte", "char"}:
             return None
 
-        if type_name in self.JAVA_LANG:
+        if simple_name in self.JAVA_LANG:
             return None
 
-        if type_name in self.JAVA_STD:
-            return self.JAVA_STD[type_name]
+        if simple_name in self.JAVA_STD:
+            return self.JAVA_STD[simple_name]
 
-        if type_name.endswith("Id"):
-            return f"{vo_pkg}.{type_name}"
+        if simple_name.endswith("Id"):
+            return f"{vo_pkg}.{simple_name}"
 
-        if type_name.endswith("Status") or type_name.endswith("Type"):
-            return f"{shared_pkg}.{type_name}"
+        if simple_name.endswith("Status") or simple_name.endswith("Type"):
+            return f"{shared_pkg}.{simple_name}"
 
-        if type_name in self.value_objects:
-            return f"{vo_pkg}.{type_name}"
+        if simple_name in self.value_objects:
+            return f"{vo_pkg}.{simple_name}"
 
-        return f"{model_pkg}.{type_name}"
+        # Do NOT automatically assume unknown types belong to domain.model.
+        # This was causing wrong imports like:
+        #   domain.model.List
+        #   domain.model.LocalDate
+        #   domain.model.AllergySeverity
+        # The correct import will be resolved later using inventory/specs.
+
+        return None

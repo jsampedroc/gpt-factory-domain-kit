@@ -1478,12 +1478,53 @@ class SoftwareFactory:
             })
 
         # ---------------- VALUE OBJECTS ----------------
+        # Place VOs inside the module when they are used by exactly one module.
+        # Keep them global only when shared across multiple modules.
+        from collections import defaultdict
+        vo_usage_modules = defaultdict(set)
+
+        for ent_name, ent in entity_map.items():
+            module_name = entity_module.get(ent_name)
+            if not module_name:
+                continue
+
+            for field in ent.get("fields", []):
+                typ = field.get("type", "")
+                if not typ:
+                    continue
+
+                # extract inner type for generics like List<Allergy>
+                inner_types = []
+                if "<" in typ and ">" in typ:
+                    inner = typ.split("<", 1)[1].rsplit(">", 1)[0]
+                    inner_types = [t.strip() for t in inner.split(",") if t.strip()]
+                    outer = typ.split("<", 1)[0].strip()
+                    candidate_types = [outer] + inner_types
+                else:
+                    candidate_types = [typ.strip()]
+
+                for candidate in candidate_types:
+                    if candidate in {vo.get("name") for vo in dm.get("value_objects", [])}:
+                        vo_usage_modules[candidate].add(module_name)
+
         for vo in dm.get("value_objects", []):
+            vo_name = vo["name"]
+            used_in = vo_usage_modules.get(vo_name, set())
+
+            if len(used_in) == 1:
+                owner_module = next(iter(used_in))
+                vo_path = f"modules/{owner_module}/domain/valueobject/{vo_name}.java"
+                vo_module = owner_module
+            else:
+                vo_path = f"domain/valueobject/{vo_name}.java"
+                vo_module = None
+
             inventory.append({
-                "path": f"domain/valueobject/{vo['name']}.java",
-                "entity": vo["name"],
+                "path": vo_path,
+                "entity": vo_name,
                 "description": "VALUEOBJECT",
                 "fields": vo.get("fields", []),
+                "module": vo_module,
             })
 
         layers = [
@@ -1493,9 +1534,9 @@ class SoftwareFactory:
             ("domain/service", "{name}DomainService.java", "DOMAIN SERVICE"),
 
             ("application/usecase", "{name}UseCase.java", "USECASE"),
-            ("shared/application/dto", "{name}Request.java", "DTO_REQUEST"),
-            ("shared/application/dto", "{name}Response.java", "DTO_RESPONSE"),
-            ("shared/application/mapper", "{name}Mapper.java", "MAPPER"),
+            ("application/dto", "{name}Request.java", "DTO_REQUEST"),
+            ("application/dto", "{name}Response.java", "DTO_RESPONSE"),
+            ("application/mapper", "{name}Mapper.java", "MAPPER"),
 
             ("infrastructure/persistence/entity", "{name}JpaEntity.java", "JPA_ENTITY"),
             ("infrastructure/persistence/spring", "SpringData{name}Repository.java", "SPRING_DATA_REPOSITORY"),
@@ -1731,6 +1772,11 @@ class SoftwareFactory:
 
         # --- Use deterministic module/layer detection from inventory metadata ---
         module = item.get("module")
+        # --- safety fallback: derive module from path if inventory did not set it ---
+        if not module:
+            parts = rel_path.split("/")
+            if parts and parts[0] == "modules" and len(parts) >= 2:
+                module = parts[1]
 
         parts = rel_path.split("/")
 
@@ -1827,11 +1873,13 @@ class SoftwareFactory:
                         code,
                         item.get("fields", []),
                         self.base_package,
-                        module,
-                        valueobject_package=f"{self.base_package}.domain.valueobject"
+                        module
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    try:
+                        self.log(f"⚠️ resolve_imports failed for {file_name}: {e}")
+                    except Exception:
+                        pass
 
                 self.log(f"🧱 Template generator used for {class_name}")
 
@@ -1854,8 +1902,7 @@ class SoftwareFactory:
                         code,
                         item.get("fields", []),
                         self.base_package,
-                        module,
-                        valueobject_package=f"{self.base_package}.domain.valueobject"
+                        module
                     )
                 except Exception:
                     pass
@@ -1880,8 +1927,32 @@ class SoftwareFactory:
                         code,
                         item.get("fields", []),
                         self.base_package,
-                        module,
-                        valueobject_package=f"{self.base_package}.domain.valueobject"
+                        module
+                    )
+                except Exception:
+                    pass
+
+                self.log(f"🧱 Template generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode == "SPRING_DATA_REPOSITORY":
+
+                code = self.template_generator.generate_spring_data_repository(
+                    pkg,
+                    entity,
+                    base_package=self.base_package,
+                    module=module
+                )
+
+                try:
+                    code = resolve_imports(
+                        code,
+                        item.get("fields", []),
+                        self.base_package,
+                        module
                     )
                 except Exception:
                     pass
@@ -1907,8 +1978,7 @@ class SoftwareFactory:
                         code,
                         item.get("fields", []),
                         self.base_package,
-                        module,
-                        valueobject_package=f"{self.base_package}.domain.valueobject"
+                        module
                     )
                 except Exception:
                     pass
@@ -1918,6 +1988,60 @@ class SoftwareFactory:
                 self.save_to_disk(rel_path, code)
                 self.state.signatures[rel_path] = signature
                 return
+
+            # --- Begin inserted DTO and Mapper generation logic ---
+            if mode in {"DTO_REQUEST", "DTO_RESPONSE"}:
+
+                code = self.ast_generator.generate_class(
+                    pkg,
+                    class_name,
+                    item.get("fields", []),
+                    base_package=self.base_package,
+                    module=module
+                )
+
+                try:
+                    code = resolve_imports(
+                        code,
+                        item.get("fields", []),
+                        self.base_package,
+                        module
+                    )
+                except Exception:
+                    pass
+
+                self.log(f"🧩 AST DTO generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode == "MAPPER":
+
+                code = self.template_generator.generate_mapper(
+                    pkg,
+                    class_name,
+                    entity,
+                    self.base_package,
+                    module=module
+                )
+
+                try:
+                    code = resolve_imports(
+                        code,
+                        item.get("fields", []),
+                        self.base_package,
+                        module
+                    )
+                except Exception:
+                    pass
+
+                self.log(f"🧱 Template generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+            # --- End inserted DTO and Mapper generation logic ---
 
         except Exception:
             pass
@@ -2025,8 +2149,7 @@ class SoftwareFactory:
                 code,
                 item.get("fields", []),
                 self.base_package,
-                module,
-                valueobject_package=f"{self.base_package}.domain.valueobject"
+                module
             )
         except Exception:
             pass

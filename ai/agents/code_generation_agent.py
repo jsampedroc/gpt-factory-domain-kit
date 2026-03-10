@@ -64,9 +64,10 @@ class CodeGenerationAgent:
 
         if desc == "SPRING_DATA_REPOSITORY":
             package = factory.base_package + ".infrastructure.persistence.spring"
-            return self.template_generator.generate_repository(
+            return self.template_generator.generate_spring_data_repository(
                 package_name=package,
                 entity=entity,
+                base_package=factory.base_package,
             )
 
         if desc == "Service":
@@ -83,6 +84,38 @@ class CodeGenerationAgent:
             return self.template_generator.generate_controller(
                 package_name=package,
                 class_name=f"{entity}Controller",
+                entity=entity,
+                base_package=factory.base_package,
+            )
+
+        # --------------------------------------------------
+        # DTOs → deterministic AST generation
+        # --------------------------------------------------
+        if desc == "DTO_REQUEST":
+            return self.ast_generator.generate_class(
+                base_package=factory.base_package,
+                module=entity.lower(),
+                package_suffix="application.dto",
+                class_name=f"{entity}Request",
+                fields=fields,
+            )
+
+        if desc == "DTO_RESPONSE":
+            return self.ast_generator.generate_class(
+                base_package=factory.base_package,
+                module=entity.lower(),
+                package_suffix="application.dto",
+                class_name=f"{entity}Response",
+                fields=fields,
+            )
+
+        # --------------------------------------------------
+        # Mapper → deterministic template
+        # --------------------------------------------------
+        if desc == "Mapper":
+            package = factory.base_package + f".{entity.lower()}.application.mapper"
+            return self.template_generator.generate_mapper(
+                package_name=package,
                 entity=entity,
                 base_package=factory.base_package,
             )

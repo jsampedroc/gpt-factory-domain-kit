@@ -7,10 +7,12 @@ class TemplateJavaGenerator:
         lines.append(f"package {package_name};\n\n")
 
         lines.append("import jakarta.persistence.*;\n")
-        lines.append("import java.time.*;\n")
-        lines.append("import java.util.*;\n")
+        lines.append("import java.util.UUID;\n")
+
+        # Domain imports are resolved later by the central ImportResolver
+        # to avoid duplicate or incorrect imports.
+
         lines.append("\n")
-        lines.append("import java.util.UUID;\n\n")
 
         lines.append("@Entity\n")
         
@@ -51,17 +53,23 @@ class TemplateJavaGenerator:
 
         if module:
             model_import = f"{base_package}.{module}.domain.model.{entity}"
+            id_import = f"{base_package}.{module}.domain.valueobject.{entity}Id"
         else:
             model_import = f"{base_package}.domain.model.{entity}"
+            id_import = f"{base_package}.domain.valueobject.{entity}Id"
 
         return f"""
 package {package_name};
 
-import org.springframework.data.jpa.repository.JpaRepository;
-import java.util.UUID;
 import {model_import};
+import {id_import};
+import java.util.Optional;
 
-public interface {entity}Repository extends JpaRepository<{entity}, UUID> {{
+public interface {entity}Repository {{
+
+    {entity} save({entity} entity);
+
+    Optional<{entity}> findById({entity}Id id);
 
 }}
 """
@@ -104,8 +112,6 @@ package {package_name};
 
 import {service_import};
 import org.springframework.web.bind.annotation.*;
-import org.springframework.http.ResponseEntity;
-import java.util.List;
 
 @RestController
 @RequestMapping("/{entity.lower()}s")

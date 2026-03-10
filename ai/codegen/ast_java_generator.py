@@ -34,21 +34,21 @@ class ASTJavaGenerator:
 
     def generate_class(self, package_name, class_name, fields, base_package=None, module=None):
 
+        imports = set()
+
         entity_id_type = f"{class_name}Id"
 
         # Avoid duplicated IDs
         has_id = any(f.get("name") == "id" for f in fields)
 
-        if not has_id:
-            fields = [{"name": "id", "type": entity_id_type}] + list(fields)
-
         # ensure EntityId import exists when auto-added
         if not has_id and base_package:
             imp = self.resolver.resolve(entity_id_type, base_package, module)
             if imp:
-                imports = set([imp])
-        else:
-            imports = set()
+                imports.add(imp)
+
+        if not has_id:
+            fields = [{"name": "id", "type": entity_id_type}] + list(fields)
 
         for f in fields:
 
@@ -79,6 +79,7 @@ class ASTJavaGenerator:
                         continue
 
                     imp = self.resolver.resolve(inner, base_package, module)
+
                     if imp and not imp.startswith(package_name) and inner != class_name:
                         imports.add(imp)
 
@@ -94,8 +95,14 @@ class ASTJavaGenerator:
                     continue
 
                 imp = self.resolver.resolve(t, base_package, module)
+
                 if imp and not imp.startswith(package_name) and t != class_name:
                     imports.add(imp)
+
+        # --- ValueObject automatic imports ---
+        if ".domain.valueobject" in package_name and base_package:
+            imports.add(f"{base_package}.domain.shared.ValueObject")
+            imports.add("java.util.Objects")
 
         lines = []
 
@@ -103,6 +110,62 @@ class ASTJavaGenerator:
 
         if imports:
             lines.append("\n")
+
+        is_domain_entity = ".domain.model" in package_name
+
+        if is_domain_entity:
+            id_type = f"{class_name}Id"
+
+            if base_package:
+                imports.add(f"{base_package}.domain.shared.Entity")
+
+            entity_fields = []
+            ctor_fields = []
+
+            for f in fields:
+                t = f.get("type", "Object")
+                n = f.get("name", "field")
+
+                if n == "id":
+                    continue
+
+                entity_fields.append((t, n))
+                ctor_fields.append((t, n))
+
+            # Rebuild import section now that Entity import may have been added
+            lines = []
+            lines.append(f"package {package_name};\n")
+
+            if imports:
+                lines.append("\n")
+                for imp in sorted(imports):
+                    lines.append(f"import {imp};\n")
+
+            lines.append("\n")
+            lines.append(f"public class {class_name} extends Entity<{id_type}> {{\n\n")
+
+            for t, n in entity_fields:
+                lines.append(f"    private final {t} {n};\n")
+
+            lines.append("\n")
+
+            ctor_params = [f"{id_type} id"] + [f"{t} {n}" for t, n in ctor_fields]
+            lines.append(f"    public {class_name}(")
+            lines.append(", ".join(ctor_params))
+            lines.append(") {\n")
+            lines.append("        super(id);\n")
+            for _, n in ctor_fields:
+                lines.append(f"        this.{n} = {n};\n")
+            lines.append("    }\n")
+
+            for t, n in entity_fields:
+                method = n[0].upper() + n[1:]
+                lines.append(f"\n    public {t} get{method}() {{ return this.{n}; }}\n")
+
+            lines.append("\n}\n")
+            return "".join(lines)
+
+        if imports:
             for imp in sorted(imports):
                 lines.append(f"import {imp};\n")
 

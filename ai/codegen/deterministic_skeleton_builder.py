@@ -14,7 +14,8 @@ class DeterministicSkeletonBuilder:
         for item in inventory:
 
             path = item["path"]
-            entity = item["entity"]
+            class_name = Path(path).stem
+            entity = item.get("entity")
             desc = item["description"]
 
             output_path = self.factory.resolve_output_path(path)
@@ -24,17 +25,19 @@ class DeterministicSkeletonBuilder:
 
             pkg = self.factory._expected_package_for(path)
 
-            code = self._generate_skeleton(pkg, entity, desc)
+            code = self._generate_skeleton(pkg, class_name, desc)
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(code)
 
-    def _generate_skeleton(self, pkg, entity, desc):
+    def _generate_skeleton(self, pkg, class_name, desc):
 
         if desc == "Entity":
             return f"""package {pkg};
 
-public class {entity} {{
+public class {class_name} {{
+
+    // fields will be injected by code generation
 
 }}
 """
@@ -42,7 +45,7 @@ public class {entity} {{
         if desc == "ID Record":
             return f"""package {pkg};
 
-public record {entity}Id(java.util.UUID value) {{
+public record {class_name}(java.util.UUID value) {{
 
 }}
 """
@@ -50,7 +53,7 @@ public record {entity}Id(java.util.UUID value) {{
         if desc == "Repository Interface":
             return f"""package {pkg};
 
-public interface {entity}Repository {{
+public interface {class_name}Repository {{
 
 }}
 """
@@ -58,7 +61,7 @@ public interface {entity}Repository {{
         if desc == "Service":
             return f"""package {pkg};
 
-public class {entity}Service {{
+public class {class_name}Service {{
 
 }}
 """
@@ -66,7 +69,7 @@ public class {entity}Service {{
         if desc == "Controller":
             return f"""package {pkg};
 
-public class {entity}Controller {{
+public class {class_name}Controller {{
 
 }}
 """
@@ -75,13 +78,17 @@ public class {entity}Controller {{
             return f"""package {pkg};
 
 import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
 import jakarta.persistence.Id;
+import jakarta.persistence.Column;
 import java.util.UUID;
 
 @Entity
-public class {entity}JpaEntity {{
+@Table(name = "{class_name.replace('JpaEntity','').lower()}s")
+public class {class_name} {{
 
     @Id
+    @Column(name = "id", nullable = false)
     private UUID id;
 
 }}
@@ -89,7 +96,7 @@ public class {entity}JpaEntity {{
 
         return f"""package {pkg};
 
-public class {entity} {{
+public class {class_name} {{
 
 }}
 """

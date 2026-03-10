@@ -6,28 +6,31 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.Objects;
 
-public final class Address implements ValueObject {
+public record Address(
+        @NotBlank(message = "Street cannot be blank")
+        @Size(max = 255, message = "Street cannot exceed 255 characters")
+        String street,
 
-    private final String street;
-    private final String city;
-    private final String state;
-    private final String postalCode;
+        @NotBlank(message = "City cannot be blank")
+        @Size(max = 100, message = "City cannot exceed 100 characters")
+        String city,
 
-    public Address(
-            String street,
-            String city,
-            String state,
-            String postalCode
-    ) {
-        this.street = Objects.requireNonNull(street, "Street cannot be null");
-        this.city = Objects.requireNonNull(city, "City cannot be null");
-        this.state = Objects.requireNonNull(state, "State cannot be null");
-        this.postalCode = Objects.requireNonNull(postalCode, "Postal code cannot be null");
+        @NotBlank(message = "State cannot be blank")
+        @Size(max = 100, message = "State cannot exceed 100 characters")
+        String state,
 
-        validateInvariants();
-    }
+        @NotBlank(message = "Postal code cannot be blank")
+        @Pattern(regexp = "^[A-Z0-9\\-\\s]+$", message = "Postal code must be alphanumeric and can contain hyphens or spaces")
+        @Size(max = 20, message = "Postal code cannot exceed 20 characters")
+        String postalCode
+) implements ValueObject {
 
-    private void validateInvariants() {
+    public Address {
+        Objects.requireNonNull(street, "Street cannot be null");
+        Objects.requireNonNull(city, "City cannot be null");
+        Objects.requireNonNull(state, "State cannot be null");
+        Objects.requireNonNull(postalCode, "Postal code cannot be null");
+
         if (street.isBlank()) {
             throw new IllegalArgumentException("Street cannot be blank");
         }
@@ -40,49 +43,20 @@ public final class Address implements ValueObject {
         if (postalCode.isBlank()) {
             throw new IllegalArgumentException("Postal code cannot be blank");
         }
-        if (postalCode.length() < 5) {
-            throw new IllegalArgumentException("Postal code must be at least 5 characters");
+        if (street.length() > 255) {
+            throw new IllegalArgumentException("Street cannot exceed 255 characters");
         }
-    }
-
-    public String street() {
-        return street;
-    }
-
-    public String city() {
-        return city;
-    }
-
-    public String state() {
-        return state;
-    }
-
-    public String postalCode() {
-        return postalCode;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Address address = (Address) o;
-        return Objects.equals(street, address.street) &&
-                Objects.equals(city, address.city) &&
-                Objects.equals(state, address.state) &&
-                Objects.equals(postalCode, address.postalCode);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(street, city, state, postalCode);
-    }
-
-    @Override
-    public String toString() {
-        return "Address[" +
-                "street=" + street + ", " +
-                "city=" + city + ", " +
-                "state=" + state + ", " +
-                "postalCode=" + postalCode + ']';
+        if (city.length() > 100) {
+            throw new IllegalArgumentException("City cannot exceed 100 characters");
+        }
+        if (state.length() > 100) {
+            throw new IllegalArgumentException("State cannot exceed 100 characters");
+        }
+        if (postalCode.length() > 20) {
+            throw new IllegalArgumentException("Postal code cannot exceed 20 characters");
+        }
+        if (!postalCode.matches("^[A-Z0-9\\-\\s]+$")) {
+            throw new IllegalArgumentException("Postal code must be alphanumeric and can contain hyphens or spaces");
+        }
     }
 }

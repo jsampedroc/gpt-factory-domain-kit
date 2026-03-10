@@ -9,7 +9,7 @@ public final class ParentId implements ValueObject {
     private final UUID value;
 
     public ParentId(UUID value) {
-        this.value = Objects.requireNonNull(value, "value cannot be null");
+        this.value = Objects.requireNonNull(value, "ID value cannot be null");
     }
 
     public UUID value() {

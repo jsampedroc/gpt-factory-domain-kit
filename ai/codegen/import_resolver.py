@@ -128,6 +128,10 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
     if "Objects." in code:
         imports.add("import java.util.Objects;")
 
+    # Optional detection
+    if "Optional<" in code or " Optional " in code:
+        imports.add("import java.util.Optional;")
+
     # Jakarta validation annotations
     ANNOTATION_IMPORTS = {
         "NotBlank": "jakarta.validation.constraints.NotBlank",
@@ -155,7 +159,11 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
         line = line.strip()
         if line.startswith("package "):
             package_name = line.replace("package ", "").replace(";", "").strip()
-        if line.startswith("public class ") or line.startswith("public record "):
+        if (
+            line.startswith("public class ")
+            or line.startswith("public record ")
+            or line.startswith("public interface ")
+        ):
             parts = line.split()
             if len(parts) >= 3:
                 class_name = parts[2].split("(")[0]
@@ -196,8 +204,18 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
     # fields. Instead keep them separate.
     inferred_field_types = [{"type": t} for t in inferred_types]
 
+    # repositories should not inherit entity field types
+    if package_name and package_name.endswith(".domain.repository"):
+        fields_to_process = inferred_field_types
+    else:
+        fields_to_process = list(fields) + inferred_field_types
+
+    # Prevent importing the class being generated (e.g., ChildRepository importing itself)
+    def _is_self_type(t):
+        return class_name and t == class_name
+
     # process both real fields and inferred types without mutating input
-    for field in list(fields) + inferred_field_types:
+    for field in fields_to_process:
 
         t = field.get("type")
 
@@ -223,6 +241,10 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
 
             typ = _extract_outer_type(typ)
 
+            # skip self type (e.g., interface importing itself)
+            if _is_self_type(typ):
+                continue
+
             if typ in JAVA_TIME_IMPORTS:
                 imports.add(f"import {JAVA_TIME_IMPORTS[typ]};")
                 continue
@@ -242,6 +264,11 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
             if module:
                 # domain repositories
                 if typ.endswith("Repository"):
+                    # avoid self-import and avoid importing repositories already in same package
+                    if _is_self_type(typ):
+                        continue
+                    if package_name and package_name.endswith(".domain.repository"):
+                        continue
                     imports.add(f"import {base_package}.{module}.domain.repository.{typ};")
                     continue
 
@@ -259,6 +286,35 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
                 if typ.endswith("Id"):
                     imports.add(f"import {base_package}.{module}.domain.valueobject.{typ};")
                     continue
+
+                # domain models referenced by repositories
+                if package_name and package_name.endswith(".domain.repository"):
+                    if typ not in JAVA_TYPES and not typ.endswith("Id") and not typ.endswith("Repository"):
+                        imports.add(f"import {base_package}.{module}.domain.model.{typ};")
+                        continue
+
+                # domain model entities (prefer inventory resolution)
+                if typ not in JAVA_TYPES and typ[0].isupper():
+                    if typ in INVENTORY_INDEX:
+                        pkg = INVENTORY_INDEX[typ]
+
+                        parts = pkg.split(".")
+                        if parts and parts[0] == "modules" and len(parts) > 1:
+                            pkg = ".".join(parts[1:])
+
+                        if not pkg.endswith(typ):
+                            pkg = f"{pkg}.{typ}"
+
+                        if not pkg.startswith(base_package):
+                            import_path = f"{base_package}.{pkg}"
+                        else:
+                            import_path = pkg
+
+                        if package_name and import_path.startswith(package_name):
+                            continue
+
+                        imports.add(f"import {import_path};")
+                        continue
 
             # Resolve using inventory.json only (deterministic)
             import_path = None

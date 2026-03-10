@@ -9,7 +9,7 @@ public final class AuthorizedPickupId implements ValueObject {
     private final UUID value;
 
     public AuthorizedPickupId(UUID value) {
-        this.value = Objects.requireNonNull(value, "value must not be null");
+        this.value = Objects.requireNonNull(value, "value cannot be null");
     }
 
     public UUID value() {

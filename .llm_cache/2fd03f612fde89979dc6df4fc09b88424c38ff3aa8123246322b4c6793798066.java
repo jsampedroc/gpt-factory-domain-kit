@@ -9,8 +9,14 @@ public final class GeoLocation implements ValueObject {
 
     public GeoLocation(@NotNull Double value) {
         this.value = Objects.requireNonNull(value, "GeoLocation value cannot be null");
-        // Add any additional domain-specific validation here if needed
-        // For example, validate range: if (value < -90.0 || value > 90.0) throw new IllegalArgumentException(...);
+        validateValue(this.value);
+    }
+
+    private void validateValue(Double value) {
+        // Example validation: latitude/longitude ranges could be added here.
+        // For now, we just ensure it's not null.
+        // If specific range validation is needed, add it here.
+        // e.g., if (value < -90.0 || value > 90.0) throw new IllegalArgumentException(...);
     }
 
     public Double value() {

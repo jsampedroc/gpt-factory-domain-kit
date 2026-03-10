@@ -12,10 +12,10 @@ public record Allergy(
 ) implements ValueObject {
 
     public Allergy {
-        Objects.requireNonNull(name, "Allergy name cannot be null");
-        Objects.requireNonNull(severity, "Allergy severity cannot be null");
+        Objects.requireNonNull(name, "Allergy name must not be null");
+        Objects.requireNonNull(severity, "Allergy severity must not be null");
         if (name.isBlank()) {
-            throw new IllegalArgumentException("Allergy name cannot be blank");
+            throw new IllegalArgumentException("Allergy name must not be blank");
         }
     }
 }

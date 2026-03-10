@@ -18,7 +18,7 @@ public final class Immunization implements ValueObject {
 
     public Immunization(String name, LocalDate dateAdministered) {
         this.name = Objects.requireNonNull(name, "Immunization name must not be null");
-        this.dateAdministered = Objects.requireNonNull(dateAdministered, "Immunization date administered must not be null");
+        this.dateAdministered = Objects.requireNonNull(dateAdministered, "Immunization dateAdministered must not be null");
 
         if (this.name.isBlank()) {
             throw new IllegalArgumentException("Immunization name must not be blank");
@@ -48,9 +48,9 @@ public final class Immunization implements ValueObject {
 
     @Override
     public String toString() {
-        return "Immunization[" +
-                "name=" + name +
+        return "Immunization{" +
+                "name='" + name + '\'' +
                 ", dateAdministered=" + dateAdministered +
-                ']';
+                '}';
     }
 }

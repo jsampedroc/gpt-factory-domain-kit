@@ -1678,5 +1678,69 @@
       "Child",
       "Parent"
     ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "Address",
+      "Allergy",
+      "GeoLocation",
+      "Immunization"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [],
+    "value_objects": [
+      "Address",
+      "Allergy",
+      "AuthorizedPickup",
+      "Child",
+      "Immunization",
+      "Parent"
+    ],
+    "aggregates": []
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "Address",
+      "Allergy",
+      "GeoLocation",
+      "Immunization"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "Address",
+      "AllergySeverity",
+      "GeoLocation"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
   }
 ]

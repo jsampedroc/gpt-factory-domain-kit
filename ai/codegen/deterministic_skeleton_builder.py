@@ -53,7 +53,7 @@ public record {class_name}(java.util.UUID value) {{
         if desc == "Repository Interface":
             return f"""package {pkg};
 
-public interface {class_name}Repository {{
+public interface {class_name} {{
 
 }}
 """
@@ -90,6 +90,16 @@ public class {class_name} {{
     @Id
     @Column(name = "id", nullable = false)
     private UUID id;
+
+    public {class_name}() {{}}
+
+    public UUID getId() {{
+        return id;
+    }}
+
+    public void setId(UUID id) {{
+        this.id = id;
+    }}
 
 }}
 """

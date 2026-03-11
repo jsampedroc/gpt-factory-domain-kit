@@ -9,6 +9,12 @@ class TemplateJavaGenerator:
         lines.append("import jakarta.persistence.*;\n")
         lines.append("import java.util.UUID;\n")
 
+        # detect collections
+        needs_list = any((f.get("type") or "").startswith("List") for f in fields)
+
+        if needs_list:
+            lines.append("import java.util.List;\n")
+
         # Domain imports are resolved later by the central ImportResolver
         # to avoid duplicate or incorrect imports.
 
@@ -22,6 +28,9 @@ class TemplateJavaGenerator:
         lines.append("    @GeneratedValue\n")
         lines.append("    private UUID id;\n\n")
 
+        lines.append("    public UUID getId() { return this.id; }\n")
+        lines.append("    public void setId(UUID id) { this.id = id; }\n\n")
+
         for f in fields:
             name = f.get("name")
             type_ = f.get("type")
@@ -34,7 +43,7 @@ class TemplateJavaGenerator:
         # constructor
         lines.append("\n    public " + class_name + "() {}\n")
 
-        # getters
+        # getters and setters
         for f in fields:
             name = f.get("name")
             type_ = f.get("type")
@@ -43,7 +52,9 @@ class TemplateJavaGenerator:
                 continue
 
             method = name[0].upper() + name[1:]
+
             lines.append(f"\n    public {type_} get{method}() {{ return this.{name}; }}\n")
+            lines.append(f"    public void set{method}({type_} {name}) {{ this.{name} = {name}; }}\n")
 
         lines.append("\n}\n")
 

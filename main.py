@@ -1572,6 +1572,20 @@ class SoftwareFactory:
                 if desc == "ID RECORD":
                     item_fields = [{"name": "value", "type": "UUID"}]
 
+                elif desc in {"DTO_REQUEST", "DTO_RESPONSE"}:
+                    dto_fields = []
+
+                    for f in ent.get("fields", []):
+                        name = f.get("name")
+                        typ = f.get("type", "")
+
+                        if name == "id" or typ.endswith("Id"):
+                            dto_fields.append({"name": name, "type": "UUID"})
+                        else:
+                            dto_fields.append({"name": name, "type": typ})
+
+                    item_fields = dto_fields
+
                 inventory.append({
                     "path": rel_path,
                     "entity": entity_name,

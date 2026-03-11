@@ -15,7 +15,9 @@
     "Allergy",
     "ContactNumber",
     "Immunization",
-    "AllergySeverity"
+    "AllergySeverity",
+    "Child",
+    "Parent"
   ],
   "aggregates": [
     "Order",

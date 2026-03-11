@@ -11,7 +11,12 @@ specs/
 # Ignorar logs locales de ejecución si no están dentro de outputs
 *.log
 
-.llm
+# Ignorar archivos relacionados con el desarrollo de la factoría (si es necesario)
+.llm    
+.llm_cache/
+.ai_factory_cache/
+.ai_factory_logs/
+
 
 ### --- Python Standard ---
 # Ignorar archivos compilados de Python

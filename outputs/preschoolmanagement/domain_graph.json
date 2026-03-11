@@ -1,0 +1,8 @@
+{
+  "Child": [
+    "AuthorizedPickup"
+  ],
+  "Parent": [
+    "Child"
+  ]
+}

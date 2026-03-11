@@ -1742,5 +1742,38 @@
       "Child",
       "Parent"
     ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "Address",
+      "Allergy",
+      "GeoLocation",
+      "Immunization"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [
+      "Address",
+      "Allergy",
+      "Immunization"
+    ],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
   }
 ]

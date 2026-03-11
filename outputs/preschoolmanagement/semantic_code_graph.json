@@ -1,0 +1,15 @@
+{
+  "Child": [
+    {
+      "target": "AuthorizedPickup",
+      "field": "authorizedPickups"
+    }
+  ],
+  "Parent": [
+    {
+      "target": "Child",
+      "field": "children"
+    }
+  ],
+  "AuthorizedPickup": []
+}

@@ -3,10 +3,10 @@
 .env
 
 # Ignorar el código generado por la factoría para tus clientes
-outputs/
+#outputs/
 
 # Ignorar la caché de diseño e inventario (JSONs en specs)
-specs/
+#specs/
 
 # Ignorar logs locales de ejecución si no están dentro de outputs
 *.log

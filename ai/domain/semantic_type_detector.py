@@ -95,12 +95,6 @@ VALUE_OBJECT_REGISTRY = {
         "type": "String",
         "validation": "NON_EMPTY",
         "description": "Postal address value object"
-    },
-
-    "GeoLocation": {
-        "type": "Double",
-        "validation": "LAT_LONG",
-        "description": "Latitude/Longitude pair"
     }
 }
 
@@ -124,8 +118,6 @@ SEMANTIC_RULES = [
     (re.compile(r"enddate|todate|finishdate", re.I), "DateRange"),
 
     (re.compile(r"address|street|city|postal|zipcode", re.I), "Address"),
-
-    (re.compile(r"latitude|longitude|lat|lon|geolocation|geo", re.I), "GeoLocation"),
 ]
 
 
@@ -797,12 +789,29 @@ class TypeDiscoveryEngine:
                 if t in self.COLLECTIONS:
                     continue
 
+                # Only promote types that look like true value objects
+                # Avoid promoting domain entities accidentally
                 if (
                     t not in self.JAVA_TYPES
                     and t not in entities
                     and t not in value_objects
                     and t[0].isupper()
+                    and not t.endswith("Id")
+                    and not t.endswith("Entity")
+                    and not t.endswith("Request")
+                    and not t.endswith("Response")
                 ):
+
+                    # Heuristic: only promote if field name suggests value semantics
+                    fname = field.get("name", "").lower()
+
+                    value_like = any(k in fname for k in [
+                        "code", "type", "status", "number", "reference", "token"
+                    ])
+
+                    if not value_like:
+                        continue
+
                     discovered.append({
                         "name": t,
                         "fields": [
@@ -819,6 +828,5 @@ class TypeDiscoveryEngine:
                 vo["fields"] = [
                     {"name": "value", "type": "String"}
                 ]
-                
 
         return discovered

@@ -1,0 +1,45 @@
+# Generated Architecture
+
+## Project Structure
+
+- `child.application.dto.AuthorizedPickupRequest`
+- `child.application.dto.AuthorizedPickupResponse`
+- `child.application.dto.ChildRequest`
+- `child.application.dto.ChildResponse`
+- `child.application.mapper.AuthorizedPickupMapper`
+- `child.application.mapper.ChildMapper`
+- `child.application.usecase.AuthorizedPickupUseCase`
+- `child.application.usecase.ChildUseCase`
+- `child.domain.model.AuthorizedPickup`
+- `child.domain.model.Child`
+- `child.domain.repository.AuthorizedPickupRepository`
+- `child.domain.repository.ChildRepository`
+- `child.domain.service.AuthorizedPickupDomainService`
+- `child.domain.service.ChildDomainService`
+- `child.domain.valueobject.Allergy`
+- `child.domain.valueobject.AuthorizedPickupId`
+- `child.domain.valueobject.ChildId`
+- `child.domain.valueobject.Immunization`
+- `child.infrastructure.persistence.adapter.JpaAuthorizedPickupRepositoryAdapter`
+- `child.infrastructure.persistence.adapter.JpaChildRepositoryAdapter`
+- `child.infrastructure.persistence.entity.AuthorizedPickupJpaEntity`
+- `child.infrastructure.persistence.entity.ChildJpaEntity`
+- `child.infrastructure.persistence.spring.SpringDataAuthorizedPickupRepository`
+- `child.infrastructure.persistence.spring.SpringDataChildRepository`
+- `child.infrastructure.rest.AuthorizedPickupController`
+- `child.infrastructure.rest.ChildController`
+- `domain.shared.Entity`
+- `domain.shared.ValueObject`
+- `parent.application.dto.ParentRequest`
+- `parent.application.dto.ParentResponse`
+- `parent.application.mapper.ParentMapper`
+- `parent.application.usecase.ParentUseCase`
+- `parent.domain.model.Parent`
+- `parent.domain.repository.ParentRepository`
+- `parent.domain.service.ParentDomainService`
+- `parent.domain.valueobject.Address`
+- `parent.domain.valueobject.ParentId`
+- `parent.infrastructure.persistence.adapter.JpaParentRepositoryAdapter`
+- `parent.infrastructure.persistence.entity.ParentJpaEntity`
+- `parent.infrastructure.persistence.spring.SpringDataParentRepository`
+- `parent.infrastructure.rest.ParentController`

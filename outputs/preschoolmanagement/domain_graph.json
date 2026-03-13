@@ -1,6 +1,8 @@
 {
   "Child": [
-    "AuthorizedPickup"
+    "Allergy",
+    "AuthorizedPickup",
+    "Immunization"
   ],
   "Parent": [
     "Child"

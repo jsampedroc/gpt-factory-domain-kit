@@ -1,6 +1,14 @@
 {
   "Child": [
     {
+      "target": "Allergy",
+      "field": "allergies"
+    },
+    {
+      "target": "Immunization",
+      "field": "immunizations"
+    },
+    {
       "target": "AuthorizedPickup",
       "field": "authorizedPickups"
     }
@@ -11,5 +19,7 @@
       "field": "children"
     }
   ],
+  "Allergy": [],
+  "Immunization": [],
   "AuthorizedPickup": []
 }

@@ -8,10 +8,10 @@ import java.util.List;
 @RequestMapping("/parents")
 public class ParentController {
 
-    private final ParentService service;
+    private final ParentUseCase useCase;
 
-    public ParentController(ParentService service) {
-        this.service = service;
+    public ParentController(ParentUseCase useCase) {
+        this.useCase = useCase;
     }
 
 }

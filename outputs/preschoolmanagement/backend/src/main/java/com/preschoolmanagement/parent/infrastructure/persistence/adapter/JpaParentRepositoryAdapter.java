@@ -26,18 +26,13 @@ public class JpaParentRepositoryAdapter implements ParentRepository {
         ParentJpaEntity entity = new ParentJpaEntity(
                 parent.id().value(),
                 parent.firstName(),
-                parent.lastName(),
-                parent.contactNumber(),
-                parent.address(),
-                parent.children()
+                parent.lastName()
         );
         ParentJpaEntity saved = repo.save(entity);
         return new Parent(
                 new ParentId(saved.getId()),
                 saved.getFirstName(),
                 saved.getLastName(),
-                saved.getContactNumber(),
-                saved.getAddress(),
                 saved.getChildren()
         );
     }
@@ -49,8 +44,6 @@ public class JpaParentRepositoryAdapter implements ParentRepository {
                         new ParentId(e.getId()),
                         e.getFirstName(),
                         e.getLastName(),
-                        e.getContactNumber(),
-                        e.getAddress(),
                         e.getChildren()
                 ));
     }

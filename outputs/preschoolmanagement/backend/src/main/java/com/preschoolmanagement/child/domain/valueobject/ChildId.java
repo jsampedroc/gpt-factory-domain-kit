@@ -12,7 +12,7 @@ public final class ChildId implements ValueObject {
     private final UUID value;
 
     public ChildId(UUID value) {
-        this.value = Objects.requireNonNull(value, "ID value cannot be null");
+        this.value = Objects.requireNonNull(value, "ChildId value cannot be null");
     }
 
     public UUID value() {

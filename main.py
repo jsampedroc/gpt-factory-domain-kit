@@ -1844,8 +1844,9 @@ class SoftwareFactory:
 
                 pkg = self._expected_package_for(rel_path)
 
-                # ensure entities are generated inside the module package
-                if module:
+                # ensure entities are generated inside the module package only
+                # when the path corresponds to domain/model
+                if module and "domain/model" in rel_path:
                     pkg = f"{self.base_package}.{module}.domain.model"
 
                 class_name = Path(rel_path).stem

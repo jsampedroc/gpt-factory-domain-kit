@@ -114,9 +114,9 @@ public class {class_name} {{
     def generate_controller(self, package_name, class_name, entity, base_package, module=None):
 
         if module:
-            service_import = f"{base_package}.{module}.application.service.{entity}Service"
+            service_import = f"{base_package}.{module}.application.usecase.{entity}UseCase"
         else:
-            service_import = f"{base_package}.application.service.{entity}Service"
+            service_import = f"{base_package}.application.usecase.{entity}UseCase"
 
         return f"""
 package {package_name};
@@ -128,10 +128,10 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/{entity.lower()}s")
 public class {class_name} {{
 
-    private final {entity}Service service;
+    private final {entity}UseCase useCase;
 
-    public {class_name}({entity}Service service) {{
-        this.service = service;
+    public {class_name}({entity}UseCase useCase) {{
+        this.useCase = useCase;
     }}
 
 }}

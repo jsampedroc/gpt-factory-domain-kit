@@ -36,19 +36,20 @@ class ASTJavaGenerator:
 
         imports = set()
 
-        entity_id_type = f"{class_name}Id"
+        is_domain_entity = ".domain.model" in package_name
 
-        # Avoid duplicated IDs
-        has_id = any(f.get("name") == "id" for f in fields)
+        if is_domain_entity:
+            entity_id_type = f"{class_name}Id"
 
-        # ensure EntityId import exists when auto-added
-        if not has_id and base_package:
-            imp = self.resolver.resolve(entity_id_type, base_package, module)
-            if imp:
-                imports.add(imp)
+            has_id = any(f.get("name") == "id" for f in fields)
 
-        if not has_id:
-            fields = [{"name": "id", "type": entity_id_type}] + list(fields)
+            if not has_id:
+                fields = [{"name": "id", "type": entity_id_type}] + list(fields)
+
+            if base_package:
+                imp = self.resolver.resolve(entity_id_type, base_package, module)
+                if imp:
+                    imports.add(imp)
 
         for f in fields:
 
@@ -80,6 +81,13 @@ class ASTJavaGenerator:
 
                     imp = self.resolver.resolve(inner, base_package, module)
 
+                    if not imp and base_package and inner[0].isupper():
+                        # fallback to domain.model when resolver cannot decide
+                        if module:
+                            imp = f"{base_package}.{module}.domain.model.{inner}"
+                        else:
+                            imp = f"{base_package}.domain.model.{inner}"
+
                     if imp and not imp.startswith(package_name) and inner != class_name:
                         imports.add(imp)
 
@@ -96,6 +104,13 @@ class ASTJavaGenerator:
 
                 imp = self.resolver.resolve(t, base_package, module)
 
+                if not imp and base_package and t[0].isupper():
+                    # fallback to domain.model when resolver cannot decide
+                    if module:
+                        imp = f"{base_package}.{module}.domain.model.{t}"
+                    else:
+                        imp = f"{base_package}.domain.model.{t}"
+
                 if imp and not imp.startswith(package_name) and t != class_name:
                     imports.add(imp)
 
@@ -110,8 +125,6 @@ class ASTJavaGenerator:
 
         if imports:
             lines.append("\n")
-
-        is_domain_entity = ".domain.model" in package_name
 
         if is_domain_entity:
             id_type = f"{class_name}Id"
@@ -171,6 +184,35 @@ class ASTJavaGenerator:
 
         lines.append("\n")
 
+        is_value_object = ".domain.valueobject" in package_name
+
+        if is_value_object:
+
+            lines.append(f"public class {class_name} {{\n\n")
+
+            vo_fields = []
+            for f in fields:
+                t = f.get("type", "Object")
+                n = f.get("name", "field")
+                vo_fields.append((t, n))
+                lines.append(f"    private final {t} {n};\n")
+
+            lines.append("\n")
+
+            ctor_params = ", ".join([f"{t} {n}" for t, n in vo_fields])
+            lines.append(f"    public {class_name}({ctor_params}) {{\n")
+            for _, n in vo_fields:
+                lines.append(f"        this.{n} = {n};\n")
+            lines.append("    }\n")
+
+            for t, n in vo_fields:
+                method = n[0].upper() + n[1:]
+                lines.append(f"\n    public {t} get{method}() {{ return this.{n}; }}\n")
+
+            lines.append("\n}\n")
+            return "".join(lines)
+
+        # DTO / other classes remain records
         record_fields = []
         for f in fields:
             t = f.get("type", "Object")

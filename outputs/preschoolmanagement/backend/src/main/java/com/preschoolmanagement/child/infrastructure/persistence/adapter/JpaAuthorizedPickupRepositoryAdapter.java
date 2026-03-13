@@ -26,16 +26,14 @@ public class JpaAuthorizedPickupRepositoryAdapter implements AuthorizedPickupRep
                 authorizedPickup.id().value(),
                 authorizedPickup.firstName(),
                 authorizedPickup.lastName(),
-                authorizedPickup.relationship(),
-                authorizedPickup.contactNumber()
+                authorizedPickup.relationshipToChild()
         );
         AuthorizedPickupJpaEntity saved = repo.save(entity);
         return new AuthorizedPickup(
                 new AuthorizedPickupId(saved.getId()),
                 saved.getFirstName(),
                 saved.getLastName(),
-                saved.getRelationship(),
-                saved.getContactNumber()
+                saved.getRelationshipToChild()
         );
     }
 
@@ -46,8 +44,7 @@ public class JpaAuthorizedPickupRepositoryAdapter implements AuthorizedPickupRep
                         new AuthorizedPickupId(e.getId()),
                         e.getFirstName(),
                         e.getLastName(),
-                        e.getRelationship(),
-                        e.getContactNumber()
+                        e.getRelationshipToChild()
                 ));
     }
 }

@@ -16,8 +16,7 @@ public class AuthorizedPickupJpaEntity {
 
     private String firstName;
     private String lastName;
-    private String relationship;
-    private String contactNumber;
+    private String relationshipToChild;
 
     public AuthorizedPickupJpaEntity() {}
 
@@ -27,10 +26,7 @@ public class AuthorizedPickupJpaEntity {
     public String getLastName() { return this.lastName; }
     public void setLastName(String lastName) { this.lastName = lastName; }
 
-    public String getRelationship() { return this.relationship; }
-    public void setRelationship(String relationship) { this.relationship = relationship; }
-
-    public String getContactNumber() { return this.contactNumber; }
-    public void setContactNumber(String contactNumber) { this.contactNumber = contactNumber; }
+    public String getRelationshipToChild() { return this.relationshipToChild; }
+    public void setRelationshipToChild(String relationshipToChild) { this.relationshipToChild = relationshipToChild; }
 
 }

@@ -9,10 +9,10 @@ import java.util.List;
 @RequestMapping("/childs")
 public class ChildController {
 
-    private final ChildService service;
+    private final ChildUseCase useCase;
 
-    public ChildController(ChildService service) {
-        this.service = service;
+    public ChildController(ChildUseCase useCase) {
+        this.useCase = useCase;
     }
 
 }

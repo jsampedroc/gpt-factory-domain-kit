@@ -1,6 +1,7 @@
 # ai/pipeline/task_executor.py
 import sys
 import time
+import os
 
 from ai.llm.llm_config import build_llm_client, get_model_config
 from ai.llm.grounding import build_grounded_prompt
@@ -111,6 +112,17 @@ class TaskExecutor:
         model_params = get_model_config(agent_config["tier"])
 
         provider = model_params.pop("provider")
+
+        # Validate API keys early to avoid sending empty Bearer headers
+        if provider == "deepseek" and not os.getenv("DEEPSEEK_API_KEY"):
+            raise RuntimeError(
+                "DEEPSEEK_API_KEY is not configured. Set it in your environment or .env file."
+            )
+
+        if provider == "openai" and not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError(
+                "OPENAI_API_KEY is not configured. Set it in your environment or .env file."
+            )
 
         client = build_llm_client(provider=provider)
 

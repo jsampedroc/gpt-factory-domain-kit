@@ -1,8 +1,6 @@
 package com.preschoolmanagement.child.domain.model;
 
-import com.preschoolmanagement.child.domain.valueobject.Allergy;
 import com.preschoolmanagement.child.domain.valueobject.ChildId;
-import com.preschoolmanagement.child.domain.valueobject.Immunization;
 import com.preschoolmanagement.domain.shared.Entity;
 import java.time.LocalDate;
 import java.util.List;

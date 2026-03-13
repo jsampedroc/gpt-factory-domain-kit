@@ -32,7 +32,7 @@ class DeterministicSkeletonBuilder:
 
     def _generate_skeleton(self, pkg, class_name, desc):
 
-        if desc == "Entity":
+        if desc in {"Entity", "ENTITY"}:
             return f"""package {pkg};
 
 public class {class_name} {{
@@ -42,7 +42,17 @@ public class {class_name} {{
 }}
 """
 
-        if desc == "ID Record":
+        if desc in {"ValueObject", "VALUEOBJECT"}:
+            return f"""package {pkg};
+
+public class {class_name} {{
+
+    // value object fields will be injected by code generation
+
+}}
+"""
+
+        if desc in {"ID Record", "ID RECORD"}:
             return f"""package {pkg};
 
 public record {class_name}(java.util.UUID value) {{
@@ -50,7 +60,7 @@ public record {class_name}(java.util.UUID value) {{
 }}
 """
 
-        if desc == "Repository Interface":
+        if desc in {"Repository Interface", "REPOSITORY INTERFACE"}:
             return f"""package {pkg};
 
 public interface {class_name} {{
@@ -58,7 +68,7 @@ public interface {class_name} {{
 }}
 """
 
-        if desc == "Service":
+        if desc in {"Service", "DOMAIN SERVICE"}:
             return f"""package {pkg};
 
 public class {class_name}Service {{
@@ -66,7 +76,7 @@ public class {class_name}Service {{
 }}
 """
 
-        if desc == "Controller":
+        if desc in {"Controller", "CONTROLLER"}:
             return f"""package {pkg};
 
 public class {class_name}Controller {{

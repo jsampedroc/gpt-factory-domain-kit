@@ -17,8 +17,6 @@ public class ParentJpaEntity {
 
     private String firstName;
     private String lastName;
-    private String contactNumber;
-    private Address address;
     private List<Child> children;
 
     public ParentJpaEntity() {}
@@ -28,12 +26,6 @@ public class ParentJpaEntity {
 
     public String getLastName() { return this.lastName; }
     public void setLastName(String lastName) { this.lastName = lastName; }
-
-    public String getContactNumber() { return this.contactNumber; }
-    public void setContactNumber(String contactNumber) { this.contactNumber = contactNumber; }
-
-    public Address getAddress() { return this.address; }
-    public void setAddress(Address address) { this.address = address; }
 
     public List<Child> getChildren() { return this.children; }
     public void setChildren(List<Child> children) { this.children = children; }

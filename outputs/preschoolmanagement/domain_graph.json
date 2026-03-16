@@ -1,10 +1,17 @@
 {
-  "Child": [
-    "Allergy",
-    "AuthorizedPickup",
-    "Immunization"
+  "Patient": [
+    "Treatment"
   ],
-  "Parent": [
-    "Child"
+  "Dentist": [
+    "Appointment"
+  ],
+  "Appointment": [
+    "Dentist",
+    "Patient",
+    "Treatment"
+  ],
+  "Invoice": [
+    "Payment",
+    "Treatment"
   ]
 }

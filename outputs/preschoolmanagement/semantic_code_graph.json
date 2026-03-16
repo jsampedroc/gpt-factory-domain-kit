@@ -1,25 +1,40 @@
 {
-  "Child": [
+  "Patient": [
     {
-      "target": "Allergy",
-      "field": "allergies"
-    },
-    {
-      "target": "Immunization",
-      "field": "immunizations"
-    },
-    {
-      "target": "AuthorizedPickup",
-      "field": "authorizedPickups"
+      "target": "Treatment",
+      "field": "treatmentHistory"
     }
   ],
-  "Parent": [
+  "Dentist": [
     {
-      "target": "Child",
-      "field": "children"
+      "target": "Appointment",
+      "field": "appointmentSchedule"
     }
   ],
-  "Allergy": [],
-  "Immunization": [],
-  "AuthorizedPickup": []
+  "Appointment": [
+    {
+      "target": "Patient",
+      "field": "patient"
+    },
+    {
+      "target": "Dentist",
+      "field": "dentist"
+    },
+    {
+      "target": "Treatment",
+      "field": "performedTreatments"
+    }
+  ],
+  "Treatment": [],
+  "Invoice": [
+    {
+      "target": "Treatment",
+      "field": "treatmentItems"
+    },
+    {
+      "target": "Payment",
+      "field": "payments"
+    }
+  ],
+  "Payment": []
 }

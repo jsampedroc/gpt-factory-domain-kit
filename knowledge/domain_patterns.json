@@ -21,7 +21,9 @@
   ],
   "aggregates": [
     "Order",
-    "Child"
+    "Child",
+    "Appointment",
+    "Invoice"
   ],
   "events": [
     "InvoicePaid"

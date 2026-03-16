@@ -1946,5 +1946,108 @@
       "Child",
       "Parent"
     ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Child",
+      "Parent",
+      "Allergy",
+      "Immunization",
+      "AuthorizedPickup"
+    ],
+    "value_objects": [],
+    "aggregates": [
+      "Child",
+      "Parent"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money"
+    ],
+    "aggregates": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Invoice"
+    ]
   }
 ]

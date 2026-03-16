@@ -30,10 +30,19 @@ class UseCasePlannerAgent:
         if not entity:
             return "core"
 
-        for ctx_name, ctx_data in bounded_contexts.items():
-            entities = ctx_data.get("entities", [])
-            if entity in entities:
-                return ctx_name
+        # bounded_contexts may be a dict {name: {...}} or a list [{name:..., entities:[...]}, ...]
+        if isinstance(bounded_contexts, dict):
+            for ctx_name, ctx_data in bounded_contexts.items():
+                entities = ctx_data.get("entities", [])
+                if entity in entities:
+                    return ctx_name
+
+        elif isinstance(bounded_contexts, list):
+            for ctx in bounded_contexts:
+                ctx_name = ctx.get("name") or ctx.get("bounded_context") or "core"
+                entities = ctx.get("entities", [])
+                if entity in entities:
+                    return ctx_name
 
         return "core"
 

@@ -1,9 +1,21 @@
 [
   {
-    "path": "modules/child/domain/valueobject/AllergyId.java",
-    "entity": "Allergy",
+    "path": "domain/valueobject/Money.java",
+    "entity": "Money",
+    "description": "VALUEOBJECT",
+    "fields": [
+      {
+        "name": "value",
+        "type": "BigDecimal"
+      }
+    ],
+    "module": null
+  },
+  {
+    "path": "modules/dentist/domain/valueobject/AppointmentId.java",
+    "entity": "Appointment",
     "description": "ID RECORD",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
         "name": "value",
@@ -12,10 +24,10 @@
     ]
   },
   {
-    "path": "modules/child/domain/valueobject/AuthorizedPickupId.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/domain/valueobject/DentistId.java",
+    "entity": "Dentist",
     "description": "ID RECORD",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
         "name": "value",
@@ -24,10 +36,10 @@
     ]
   },
   {
-    "path": "modules/child/domain/valueobject/ChildId.java",
-    "entity": "Child",
+    "path": "modules/invoice/domain/valueobject/InvoiceId.java",
+    "entity": "Invoice",
     "description": "ID RECORD",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
         "name": "value",
@@ -36,10 +48,10 @@
     ]
   },
   {
-    "path": "modules/child/domain/valueobject/ImmunizationId.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/domain/valueobject/PaymentId.java",
+    "entity": "Payment",
     "description": "ID RECORD",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
         "name": "value",
@@ -48,10 +60,10 @@
     ]
   },
   {
-    "path": "modules/parent/domain/valueobject/ParentId.java",
-    "entity": "Parent",
+    "path": "modules/patient/domain/valueobject/PatientId.java",
+    "entity": "Patient",
     "description": "ID RECORD",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
         "name": "value",
@@ -60,1146 +72,1554 @@
     ]
   },
   {
-    "path": "modules/child/domain/model/Allergy.java",
-    "entity": "Allergy",
+    "path": "modules/patient/domain/valueobject/TreatmentId.java",
+    "entity": "Treatment",
+    "description": "ID RECORD",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "value",
+        "type": "UUID"
+      }
+    ]
+  },
+  {
+    "path": "modules/dentist/domain/model/Appointment.java",
+    "entity": "Appointment",
     "description": "ENTITY",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/model/AuthorizedPickup.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/domain/model/Dentist.java",
+    "entity": "Dentist",
     "description": "ENTITY",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/model/Child.java",
-    "entity": "Child",
+    "path": "modules/invoice/domain/model/Invoice.java",
+    "entity": "Invoice",
     "description": "ENTITY",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "birthDate",
-        "type": "LocalDate"
+        "name": "totalAmount",
+        "type": "Money"
       },
       {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/model/Immunization.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/domain/model/Payment.java",
+    "entity": "Payment",
     "description": "ENTITY",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
       }
     ]
   },
   {
-    "path": "modules/parent/domain/model/Parent.java",
-    "entity": "Parent",
+    "path": "modules/patient/domain/model/Patient.java",
+    "entity": "Patient",
     "description": "ENTITY",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/repository/AllergyRepository.java",
-    "entity": "Allergy",
+    "path": "modules/patient/domain/model/Treatment.java",
+    "entity": "Treatment",
+    "description": "ENTITY",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/dentist/domain/repository/AppointmentRepository.java",
+    "entity": "Appointment",
     "description": "REPOSITORY INTERFACE",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/repository/AuthorizedPickupRepository.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/domain/repository/DentistRepository.java",
+    "entity": "Dentist",
     "description": "REPOSITORY INTERFACE",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/repository/ChildRepository.java",
-    "entity": "Child",
+    "path": "modules/invoice/domain/repository/InvoiceRepository.java",
+    "entity": "Invoice",
     "description": "REPOSITORY INTERFACE",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "birthDate",
-        "type": "LocalDate"
+        "name": "totalAmount",
+        "type": "Money"
       },
       {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/repository/ImmunizationRepository.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/domain/repository/PaymentRepository.java",
+    "entity": "Payment",
     "description": "REPOSITORY INTERFACE",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
       }
     ]
   },
   {
-    "path": "modules/parent/domain/repository/ParentRepository.java",
-    "entity": "Parent",
+    "path": "modules/patient/domain/repository/PatientRepository.java",
+    "entity": "Patient",
     "description": "REPOSITORY INTERFACE",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/service/AllergyDomainService.java",
-    "entity": "Allergy",
+    "path": "modules/patient/domain/repository/TreatmentRepository.java",
+    "entity": "Treatment",
+    "description": "REPOSITORY INTERFACE",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/dentist/domain/service/AppointmentDomainService.java",
+    "entity": "Appointment",
     "description": "DOMAIN SERVICE",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/service/AuthorizedPickupDomainService.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/domain/service/DentistDomainService.java",
+    "entity": "Dentist",
     "description": "DOMAIN SERVICE",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/service/ChildDomainService.java",
-    "entity": "Child",
+    "path": "modules/invoice/domain/service/InvoiceDomainService.java",
+    "entity": "Invoice",
     "description": "DOMAIN SERVICE",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "birthDate",
-        "type": "LocalDate"
+        "name": "totalAmount",
+        "type": "Money"
       },
       {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/child/domain/service/ImmunizationDomainService.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/domain/service/PaymentDomainService.java",
+    "entity": "Payment",
     "description": "DOMAIN SERVICE",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
       }
     ]
   },
   {
-    "path": "modules/parent/domain/service/ParentDomainService.java",
-    "entity": "Parent",
+    "path": "modules/patient/domain/service/PatientDomainService.java",
+    "entity": "Patient",
     "description": "DOMAIN SERVICE",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/usecase/AllergyUseCase.java",
-    "entity": "Allergy",
+    "path": "modules/patient/domain/service/TreatmentDomainService.java",
+    "entity": "Treatment",
+    "description": "DOMAIN SERVICE",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/dentist/application/usecase/AppointmentUseCase.java",
+    "entity": "Appointment",
     "description": "USECASE",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/usecase/AuthorizedPickupUseCase.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/application/usecase/DentistUseCase.java",
+    "entity": "Dentist",
     "description": "USECASE",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/usecase/ChildUseCase.java",
-    "entity": "Child",
+    "path": "modules/invoice/application/usecase/InvoiceUseCase.java",
+    "entity": "Invoice",
     "description": "USECASE",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "birthDate",
-        "type": "LocalDate"
+        "name": "totalAmount",
+        "type": "Money"
       },
       {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/usecase/ImmunizationUseCase.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/application/usecase/PaymentUseCase.java",
+    "entity": "Payment",
     "description": "USECASE",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
       }
     ]
   },
   {
-    "path": "modules/parent/application/usecase/ParentUseCase.java",
-    "entity": "Parent",
+    "path": "modules/patient/application/usecase/PatientUseCase.java",
+    "entity": "Patient",
     "description": "USECASE",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/entity/AllergyJpaEntity.java",
-    "entity": "Allergy",
+    "path": "modules/patient/application/usecase/TreatmentUseCase.java",
+    "entity": "Treatment",
+    "description": "USECASE",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/dentist/infrastructure/persistence/entity/AppointmentJpaEntity.java",
+    "entity": "Appointment",
     "description": "JPA_ENTITY",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/spring/SpringDataAllergyRepository.java",
-    "entity": "Allergy",
+    "path": "modules/dentist/infrastructure/persistence/spring/SpringDataAppointmentRepository.java",
+    "entity": "Appointment",
     "description": "SPRING_DATA_REPOSITORY",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/adapter/JpaAllergyRepositoryAdapter.java",
-    "entity": "Allergy",
+    "path": "modules/dentist/infrastructure/persistence/adapter/JpaAppointmentRepositoryAdapter.java",
+    "entity": "Appointment",
     "description": "JPA_ADAPTER",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/entity/AuthorizedPickupJpaEntity.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/infrastructure/persistence/entity/DentistJpaEntity.java",
+    "entity": "Dentist",
     "description": "JPA_ENTITY",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/spring/SpringDataAuthorizedPickupRepository.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/infrastructure/persistence/spring/SpringDataDentistRepository.java",
+    "entity": "Dentist",
     "description": "SPRING_DATA_REPOSITORY",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/adapter/JpaAuthorizedPickupRepositoryAdapter.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/infrastructure/persistence/adapter/JpaDentistRepositoryAdapter.java",
+    "entity": "Dentist",
     "description": "JPA_ADAPTER",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/entity/ChildJpaEntity.java",
-    "entity": "Child",
+    "path": "modules/invoice/infrastructure/persistence/entity/InvoiceJpaEntity.java",
+    "entity": "Invoice",
     "description": "JPA_ENTITY",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "birthDate",
-        "type": "LocalDate"
+        "name": "totalAmount",
+        "type": "Money"
       },
       {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/spring/SpringDataChildRepository.java",
-    "entity": "Child",
+    "path": "modules/invoice/infrastructure/persistence/spring/SpringDataInvoiceRepository.java",
+    "entity": "Invoice",
     "description": "SPRING_DATA_REPOSITORY",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "birthDate",
-        "type": "LocalDate"
+        "name": "totalAmount",
+        "type": "Money"
       },
       {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/adapter/JpaChildRepositoryAdapter.java",
-    "entity": "Child",
+    "path": "modules/invoice/infrastructure/persistence/adapter/JpaInvoiceRepositoryAdapter.java",
+    "entity": "Invoice",
     "description": "JPA_ADAPTER",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "birthDate",
-        "type": "LocalDate"
+        "name": "totalAmount",
+        "type": "Money"
       },
       {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/entity/ImmunizationJpaEntity.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/infrastructure/persistence/entity/PaymentJpaEntity.java",
+    "entity": "Payment",
     "description": "JPA_ENTITY",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/spring/SpringDataImmunizationRepository.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/infrastructure/persistence/spring/SpringDataPaymentRepository.java",
+    "entity": "Payment",
     "description": "SPRING_DATA_REPOSITORY",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/persistence/adapter/JpaImmunizationRepositoryAdapter.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/infrastructure/persistence/adapter/JpaPaymentRepositoryAdapter.java",
+    "entity": "Payment",
     "description": "JPA_ADAPTER",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
       }
     ]
   },
   {
-    "path": "modules/parent/infrastructure/persistence/entity/ParentJpaEntity.java",
-    "entity": "Parent",
+    "path": "modules/patient/infrastructure/persistence/entity/PatientJpaEntity.java",
+    "entity": "Patient",
     "description": "JPA_ENTITY",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/parent/infrastructure/persistence/spring/SpringDataParentRepository.java",
-    "entity": "Parent",
+    "path": "modules/patient/infrastructure/persistence/spring/SpringDataPatientRepository.java",
+    "entity": "Patient",
     "description": "SPRING_DATA_REPOSITORY",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/parent/infrastructure/persistence/adapter/JpaParentRepositoryAdapter.java",
-    "entity": "Parent",
+    "path": "modules/patient/infrastructure/persistence/adapter/JpaPatientRepositoryAdapter.java",
+    "entity": "Patient",
     "description": "JPA_ADAPTER",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/rest/AllergyController.java",
-    "entity": "Allergy",
+    "path": "modules/patient/infrastructure/persistence/entity/TreatmentJpaEntity.java",
+    "entity": "Treatment",
+    "description": "JPA_ENTITY",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/patient/infrastructure/persistence/spring/SpringDataTreatmentRepository.java",
+    "entity": "Treatment",
+    "description": "SPRING_DATA_REPOSITORY",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/patient/infrastructure/persistence/adapter/JpaTreatmentRepositoryAdapter.java",
+    "entity": "Treatment",
+    "description": "JPA_ADAPTER",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/dentist/infrastructure/rest/AppointmentController.java",
+    "entity": "Appointment",
     "description": "CONTROLLER",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/rest/AuthorizedPickupController.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/infrastructure/rest/DentistController.java",
+    "entity": "Dentist",
     "description": "CONTROLLER",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/rest/ChildController.java",
-    "entity": "Child",
+    "path": "modules/invoice/infrastructure/rest/InvoiceController.java",
+    "entity": "Invoice",
     "description": "CONTROLLER",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "birthDate",
-        "type": "LocalDate"
+        "name": "totalAmount",
+        "type": "Money"
       },
       {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/child/infrastructure/rest/ImmunizationController.java",
-    "entity": "Immunization",
+    "path": "modules/invoice/infrastructure/rest/PaymentController.java",
+    "entity": "Payment",
     "description": "CONTROLLER",
-    "module": "child",
+    "module": "invoice",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
       }
     ]
   },
   {
-    "path": "modules/parent/infrastructure/rest/ParentController.java",
-    "entity": "Parent",
+    "path": "modules/patient/infrastructure/rest/PatientController.java",
+    "entity": "Patient",
     "description": "CONTROLLER",
-    "module": "parent",
+    "module": "patient",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/dto/AllergyRequest.java",
-    "entity": "Allergy",
+    "path": "modules/patient/infrastructure/rest/TreatmentController.java",
+    "entity": "Treatment",
+    "description": "CONTROLLER",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/dentist/application/dto/AppointmentRequest.java",
+    "entity": "Appointment",
     "description": "DTO_REQUEST",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/dto/AllergyResponse.java",
-    "entity": "Allergy",
+    "path": "modules/dentist/application/dto/AppointmentResponse.java",
+    "entity": "Appointment",
     "description": "DTO_RESPONSE",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/mapper/AllergyMapper.java",
-    "entity": "Allergy",
+    "path": "modules/dentist/application/mapper/AppointmentMapper.java",
+    "entity": "Appointment",
     "description": "MAPPER",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "name",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "severity",
-        "type": "AllergySeverity"
+        "name": "dateTime",
+        "type": "LocalDateTime"
+      },
+      {
+        "name": "patient",
+        "type": "Patient"
+      },
+      {
+        "name": "dentist",
+        "type": "Dentist"
+      },
+      {
+        "name": "performedTreatments",
+        "type": "List<Treatment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/dto/AuthorizedPickupRequest.java",
-    "entity": "AuthorizedPickup",
+    "path": "modules/dentist/application/dto/DentistRequest.java",
+    "entity": "Dentist",
     "description": "DTO_REQUEST",
-    "module": "child",
+    "module": "dentist",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
-      {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
-      }
-    ]
-  },
-  {
-    "path": "modules/child/application/dto/AuthorizedPickupResponse.java",
-    "entity": "AuthorizedPickup",
-    "description": "DTO_RESPONSE",
-    "module": "child",
-    "fields": [
-      {
-        "name": "firstName",
-        "type": "String"
-      },
-      {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
-      }
-    ]
-  },
-  {
-    "path": "modules/child/application/mapper/AuthorizedPickupMapper.java",
-    "entity": "AuthorizedPickup",
-    "description": "MAPPER",
-    "module": "child",
-    "fields": [
-      {
-        "name": "firstName",
-        "type": "String"
-      },
-      {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "relationshipToChild",
-        "type": "String"
-      }
-    ]
-  },
-  {
-    "path": "modules/child/application/dto/ChildRequest.java",
-    "entity": "Child",
-    "description": "DTO_REQUEST",
-    "module": "child",
-    "fields": [
-      {
-        "name": "firstName",
-        "type": "String"
-      },
-      {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "birthDate",
-        "type": "LocalDate"
-      },
-      {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
-      }
-    ]
-  },
-  {
-    "path": "modules/child/application/dto/ChildResponse.java",
-    "entity": "Child",
-    "description": "DTO_RESPONSE",
-    "module": "child",
-    "fields": [
-      {
-        "name": "firstName",
-        "type": "String"
-      },
-      {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "birthDate",
-        "type": "LocalDate"
-      },
-      {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
-      }
-    ]
-  },
-  {
-    "path": "modules/child/application/mapper/ChildMapper.java",
-    "entity": "Child",
-    "description": "MAPPER",
-    "module": "child",
-    "fields": [
-      {
-        "name": "firstName",
-        "type": "String"
-      },
-      {
-        "name": "lastName",
-        "type": "String"
-      },
-      {
-        "name": "birthDate",
-        "type": "LocalDate"
-      },
-      {
-        "name": "allergies",
-        "type": "List<Allergy>"
-      },
-      {
-        "name": "immunizations",
-        "type": "List<Immunization>"
-      },
-      {
-        "name": "authorizedPickups",
-        "type": "List<AuthorizedPickup>"
-      }
-    ]
-  },
-  {
-    "path": "modules/child/application/dto/ImmunizationRequest.java",
-    "entity": "Immunization",
-    "description": "DTO_REQUEST",
-    "module": "child",
-    "fields": [
       {
         "name": "name",
         "type": "String"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/dto/ImmunizationResponse.java",
-    "entity": "Immunization",
+    "path": "modules/dentist/application/dto/DentistResponse.java",
+    "entity": "Dentist",
     "description": "DTO_RESPONSE",
-    "module": "child",
+    "module": "dentist",
     "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
       {
         "name": "name",
         "type": "String"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/child/application/mapper/ImmunizationMapper.java",
-    "entity": "Immunization",
+    "path": "modules/dentist/application/mapper/DentistMapper.java",
+    "entity": "Dentist",
     "description": "MAPPER",
-    "module": "child",
+    "module": "dentist",
     "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
       {
         "name": "name",
         "type": "String"
       },
       {
-        "name": "dateAdministered",
-        "type": "LocalDate"
+        "name": "appointmentSchedule",
+        "type": "List<Appointment>"
       }
     ]
   },
   {
-    "path": "modules/parent/application/dto/ParentRequest.java",
-    "entity": "Parent",
+    "path": "modules/invoice/application/dto/InvoiceRequest.java",
+    "entity": "Invoice",
     "description": "DTO_REQUEST",
-    "module": "parent",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "totalAmount",
+        "type": "Money"
+      },
+      {
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/parent/application/dto/ParentResponse.java",
-    "entity": "Parent",
+    "path": "modules/invoice/application/dto/InvoiceResponse.java",
+    "entity": "Invoice",
     "description": "DTO_RESPONSE",
-    "module": "parent",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
-        "type": "String"
+        "name": "id",
+        "type": "UUID"
       },
       {
-        "name": "lastName",
-        "type": "String"
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
       },
       {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "totalAmount",
+        "type": "Money"
+      },
+      {
+        "name": "payments",
+        "type": "List<Payment>"
       }
     ]
   },
   {
-    "path": "modules/parent/application/mapper/ParentMapper.java",
-    "entity": "Parent",
+    "path": "modules/invoice/application/mapper/InvoiceMapper.java",
+    "entity": "Invoice",
     "description": "MAPPER",
-    "module": "parent",
+    "module": "invoice",
     "fields": [
       {
-        "name": "firstName",
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "treatmentItems",
+        "type": "List<Treatment>"
+      },
+      {
+        "name": "totalAmount",
+        "type": "Money"
+      },
+      {
+        "name": "payments",
+        "type": "List<Payment>"
+      }
+    ]
+  },
+  {
+    "path": "modules/invoice/application/dto/PaymentRequest.java",
+    "entity": "Payment",
+    "description": "DTO_REQUEST",
+    "module": "invoice",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
+      }
+    ]
+  },
+  {
+    "path": "modules/invoice/application/dto/PaymentResponse.java",
+    "entity": "Payment",
+    "description": "DTO_RESPONSE",
+    "module": "invoice",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
+      }
+    ]
+  },
+  {
+    "path": "modules/invoice/application/mapper/PaymentMapper.java",
+    "entity": "Payment",
+    "description": "MAPPER",
+    "module": "invoice",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "amount",
+        "type": "Money"
+      },
+      {
+        "name": "paymentMethod",
+        "type": "PaymentMethod"
+      }
+    ]
+  },
+  {
+    "path": "modules/patient/application/dto/PatientRequest.java",
+    "entity": "Patient",
+    "description": "DTO_REQUEST",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "lastName",
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
+      }
+    ]
+  },
+  {
+    "path": "modules/patient/application/dto/PatientResponse.java",
+    "entity": "Patient",
+    "description": "DTO_RESPONSE",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
         "type": "String"
       },
       {
-        "name": "children",
-        "type": "List<Child>"
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
+      }
+    ]
+  },
+  {
+    "path": "modules/patient/application/mapper/PatientMapper.java",
+    "entity": "Patient",
+    "description": "MAPPER",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "name",
+        "type": "String"
+      },
+      {
+        "name": "treatmentHistory",
+        "type": "List<Treatment>"
+      }
+    ]
+  },
+  {
+    "path": "modules/patient/application/dto/TreatmentRequest.java",
+    "entity": "Treatment",
+    "description": "DTO_REQUEST",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/patient/application/dto/TreatmentResponse.java",
+    "entity": "Treatment",
+    "description": "DTO_RESPONSE",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
+      }
+    ]
+  },
+  {
+    "path": "modules/patient/application/mapper/TreatmentMapper.java",
+    "entity": "Treatment",
+    "description": "MAPPER",
+    "module": "patient",
+    "fields": [
+      {
+        "name": "id",
+        "type": "UUID"
+      },
+      {
+        "name": "type",
+        "type": "String"
+      },
+      {
+        "name": "description",
+        "type": "String"
+      },
+      {
+        "name": "cost",
+        "type": "Money"
+      },
+      {
+        "name": "duration",
+        "type": "Integer"
       }
     ]
   }

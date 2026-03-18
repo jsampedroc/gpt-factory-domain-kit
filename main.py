@@ -776,7 +776,8 @@ cd frontend && npm install && npm run dev
 | Servicio | URL |
 |---|---|
 | Backend API | http://localhost:8080 |
-| Frontend | http://localhost:3000 |
+| Frontend | http://localhost:5173 |
+| Keycloak | http://localhost:8180 |
 | pgAdmin | http://localhost:5050 |
 
 ---
@@ -873,6 +874,8 @@ cd frontend && npm run build
         db_pass = f"{slug}_pass"
         db_port = 5432
 
+        kc_realm = slug
+
         # ---- docker-compose.yml ----
         docker_compose = f"""version: '3.8'
 
@@ -905,8 +908,96 @@ services:
     depends_on:
       - postgres
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: {slug}_keycloak
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: 8180
+    ports:
+      - "8180:8180"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8180/health/ready || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 30s
+
 volumes:
   {slug}_pgdata:
+"""
+
+        # ---- Keycloak realm JSON ----
+        kc_realm_json = f"""{{
+  "realm": "{kc_realm}",
+  "enabled": true,
+  "displayName": "{slug.title()}",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 3600,
+  "roles": {{
+    "realm": [
+      {{ "name": "ROLE_ADMIN",   "description": "Full access"    }},
+      {{ "name": "ROLE_USER",    "description": "Standard access" }},
+      {{ "name": "ROLE_VIEWER",  "description": "Read-only access"}}
+    ]
+  }},
+  "clients": [
+    {{
+      "clientId": "{slug}-frontend",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "rootUrl": "http://localhost:5173",
+      "redirectUris": ["http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:5173", "http://localhost:8080"],
+      "protocol": "openid-connect",
+      "attributes": {{ "pkce.code.challenge.method": "S256" }}
+    }}
+  ],
+  "users": [
+    {{
+      "username": "admin",
+      "email": "admin@{slug}.com",
+      "firstName": "Admin",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{{"type": "password", "value": "admin123", "temporary": false}}],
+      "realmRoles": ["ROLE_ADMIN"]
+    }},
+    {{
+      "username": "user1",
+      "email": "user1@{slug}.com",
+      "firstName": "User",
+      "lastName": "One",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{{"type": "password", "value": "user123", "temporary": false}}],
+      "realmRoles": ["ROLE_USER"]
+    }},
+    {{
+      "username": "viewer",
+      "email": "viewer@{slug}.com",
+      "firstName": "Viewer",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{{"type": "password", "value": "viewer123", "temporary": false}}],
+      "realmRoles": ["ROLE_VIEWER"]
+    }}
+  ]
+}}
 """
 
         # ---- application.properties ----
@@ -931,8 +1022,12 @@ spring.flyway.enabled=true
 spring.flyway.locations=classpath:db/migration
 spring.flyway.baseline-on-migrate=true
 
+# ── OAuth2 / Keycloak ────────────────────────────────────────────────────────
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8180/realms/{kc_realm}
+spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://localhost:8180/realms/{kc_realm}/protocol/openid-connect/certs
+
 # ── CORS (React dev server) ───────────────────────────────────────────────────
-spring.mvc.cors.allowed-origins=http://localhost:3000
+spring.mvc.cors.allowed-origins=http://localhost:5173
 """
 
         # ---- .env.example (for docker-compose variables) ----
@@ -940,6 +1035,8 @@ spring.mvc.cors.allowed-origins=http://localhost:3000
 DB_USER={db_user}
 DB_PASS={db_pass}
 DB_PORT={db_port}
+KEYCLOAK_ADMIN=admin
+KEYCLOAK_ADMIN_PASSWORD=admin
 """
 
         # ---- Flyway SQL ----
@@ -953,11 +1050,96 @@ DB_PORT={db_port}
             except Exception as e:
                 f.log(f"⚠️ Flyway SQL generation error: {e}")
 
+        # ---- SecurityConfig.java ----
+        pkg_parts = pkg.split(".")
+        proj_title = "".join(p.title() for p in slug.split("_"))
+        security_config = f"""package {pkg}.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class SecurityConfig {{
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {{
+        http
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health").permitAll()
+                .anyRequest().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtConverter()))
+            );
+        return http.build();
+    }}
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {{
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of("http://localhost:5173"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }}
+
+    @Bean
+    public Converter<Jwt, AbstractAuthenticationToken> keycloakJwtConverter() {{
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(jwt -> {{
+            JwtGrantedAuthoritiesConverter defaultConverter = new JwtGrantedAuthoritiesConverter();
+            Collection<GrantedAuthority> defaultAuthorities = defaultConverter.convert(jwt);
+            Map<String, Object> realmAccess = jwt.getClaimAsMap("realm_access");
+            if (realmAccess == null || !realmAccess.containsKey("roles")) return defaultAuthorities;
+            @SuppressWarnings("unchecked")
+            List<String> roles = (List<String>) realmAccess.get("roles");
+            List<GrantedAuthority> realmRoles = roles.stream()
+                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase().replace("ROLE_", "")))
+                    .collect(Collectors.toList());
+            realmRoles.addAll(defaultAuthorities);
+            return realmRoles;
+        }});
+        return converter;
+    }}
+}}
+"""
+
         # ---- Write all files ----
+        pkg_path = pkg.replace(".", "/")
         files = {
             "docker-compose.yml": docker_compose,
+            f"keycloak/{kc_realm}-realm.json": kc_realm_json,
             "backend/src/main/resources/application.properties": app_props,
             ".env.example": env_example,
+            f"backend/src/main/java/{pkg_path}/config/SecurityConfig.java": security_config,
         }
         if v1_sql:
             files["backend/src/main/resources/db/migration/V1__create_tables.sql"] = v1_sql
@@ -1026,7 +1208,7 @@ DB_PORT={db_port}
                     elif fname == "index.html":
                         content = gen.generate_index_html(f.project_slug)
                     elif fname == ".env.example":
-                        content = gen.generate_env_example()
+                        content = gen.generate_env_example(f.project_slug)
                     elif fname == "main.tsx":
                         content = gen.generate_main_tsx()
                     elif fname == "index.css":
@@ -1054,6 +1236,20 @@ DB_PORT={db_port}
 
             except Exception as e:
                 f.log(f"⚠️ Frontend file skipped ({path}): {e}")
+
+        # ---- Auth files (Keycloak integration) ----
+        auth_files = {
+            "frontend/src/auth/keycloak.ts": gen.generate_keycloak_ts(f.project_slug),
+            "frontend/src/auth/AuthProvider.tsx": gen.generate_auth_provider_tsx(),
+            "frontend/src/api/apiFetch.ts": gen.generate_api_fetch_ts(),
+        }
+        for rel, content in auth_files.items():
+            try:
+                full = f.output_root / rel
+                full.parent.mkdir(parents=True, exist_ok=True)
+                full.write_text(content, encoding="utf-8")
+            except Exception as e:
+                f.log(f"⚠️ Auth file skipped ({rel}): {e}")
 
         f.log(f"⚛️ Frontend generated: {len(inventory)} files → {f.output_root}/frontend/")
 
@@ -2361,6 +2557,15 @@ class SoftwareFactory:
             "      <groupId>org.flywaydb</groupId>\n"
             "      <artifactId>flyway-core</artifactId>\n"
             "    </dependency>\n"
+            "    <!-- OAuth2 Resource Server (validates Keycloak JWT) -->\n"
+            "    <dependency>\n"
+            "      <groupId>org.springframework.boot</groupId>\n"
+            "      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>\n"
+            "    </dependency>\n"
+            "    <dependency>\n"
+            "      <groupId>org.springframework.boot</groupId>\n"
+            "      <artifactId>spring-boot-starter-security</artifactId>\n"
+            "    </dependency>\n"
             "  </dependencies>\n\n"
             "  <build>\n"
             "    <plugins>\n"
@@ -2799,18 +3004,9 @@ class SoftwareFactory:
                     class_name,
                     entity,
                     self.base_package,
-                    module=module
+                    module=module,
+                    fields=item.get("fields", [])
                 )
-
-                try:
-                    code = resolve_imports(
-                        code,
-                        item.get("fields", []),
-                        self.base_package,
-                        module
-                    )
-                except Exception:
-                    pass
 
                 self.log(f"🧱 Template generator used for {class_name}")
 
@@ -2819,7 +3015,24 @@ class SoftwareFactory:
                 return
 
             # --- Begin inserted DTO and Mapper generation logic ---
-            if mode in {"DTO_REQUEST", "DTO_RESPONSE"}:
+            if mode == "DTO_RESPONSE":
+
+                # Generate flat response DTO with JDK types (no domain VOs)
+                code = self.template_generator.generate_response_dto(
+                    pkg,
+                    entity,
+                    item.get("fields", []),
+                    base_package=self.base_package,
+                    module=module
+                )
+
+                self.log(f"🧩 Response DTO generated for {entity}Response")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode in {"DTO_REQUEST"}:
 
                 code = self.ast_generator.generate_class(
                     pkg,

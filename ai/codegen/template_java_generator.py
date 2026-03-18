@@ -554,22 +554,215 @@ public interface {class_name} {{
 }}
 """
 
-    def generate_controller(self, package_name, class_name, entity, base_package, module=None):
+    def generate_response_dto(self, package_name, entity, fields, base_package=None, module=None):
+        """
+        Generates a flat *Response record using only JDK-safe types.
+        VO types (Money, *Status, *Id…) are unwrapped to String / Double / UUID.
+        Always has UUID id as first field.
+        """
+        import re as _re
+
+        def _response_type(java_type: str) -> str:
+            outer = java_type.split("<")[0]
+            if outer in self._JDK_TYPES:
+                # LocalDate / LocalDateTime → String for clean JSON
+                if outer in ("LocalDate", "LocalDateTime", "Instant"):
+                    return "String"
+                return java_type
+            if outer in self._VO_TYPE_MAP or outer in ("Money", "Price", "Amount"):
+                return "Double"
+            if outer.endswith("Id"):
+                return "UUID"
+            if any(outer.endswith(s) for s in ("Status", "Type", "Kind", "State", "Category", "Role")):
+                return "String"
+            return "String"
+
+        non_id_fields = [f for f in fields if f.get("name") != "id"]
+        fields_str = "        UUID id"
+        for f in non_id_fields:
+            fname = f.get("name", "value")
+            rtype = _response_type(f.get("type", "String"))
+            fields_str += f",\n        {rtype} {fname}"
+
+        needs_uuid = True  # id is always UUID
+        needs_bigdecimal = any(
+            _response_type(f.get("type", "")) == "BigDecimal" for f in non_id_fields
+        )
+
+        imports = ["import java.util.UUID;"]
+        if needs_bigdecimal:
+            imports.append("import java.math.BigDecimal;")
+
+        imports_str = "\n".join(imports)
+
         return f"""package {package_name};
 
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+{imports_str}
+
+public record {entity}Response(
+{fields_str}
+) {{}}
+"""
+
+    def generate_controller(self, package_name, class_name, entity, base_package, module=None, fields=None):
+        """
+        Full REST controller with 5 endpoints wired to the 5 standard use cases.
+        toResponse() unwraps VO types to JDK types matching *Response record.
+        """
+        import re as _re
+
+        fields = fields or []
+        non_id_fields = [f for f in fields if f.get("name") != "id"]
+
+        # Pluralise entity name for URL path (simple snake_case + 's')
+        snake = _re.sub(r"([A-Z])", r"_\1", entity).lstrip("_").lower()
+        url_path = snake + "s"
+
+        # Use-case class names follow standard naming convention
+        list_uc   = f"ListAll{entity}sUseCase"
+        list_q    = f"ListAll{entity}sQuery"
+        get_uc    = f"Get{entity}ByIdUseCase"
+        get_q     = f"Get{entity}ByIdQuery"
+        reg_uc    = f"Register{entity}UseCase"
+        reg_cmd   = f"Register{entity}Command"
+        upd_uc    = f"Update{entity}UseCase"
+        upd_cmd   = f"Update{entity}Command"
+        deact_uc  = f"Deactivate{entity}UseCase"
+        deact_cmd = f"Deactivate{entity}Command"
+
+        mod_prefix = f"{base_package}.{module}" if module else base_package
+
+        uc_pkg = f"{mod_prefix}.application.usecase"
+        dto_pkg = f"{mod_prefix}.application.dto"
+        model_import = f"{mod_prefix}.domain.model.{entity}"
+
+        # Build toResponse() field mapping
+        def _response_type(java_type: str) -> str:
+            outer = java_type.split("<")[0]
+            if outer in self._JDK_TYPES:
+                if outer in ("LocalDate", "LocalDateTime", "Instant"):
+                    return "String"
+                return java_type
+            if outer in self._VO_TYPE_MAP or outer in ("Money", "Price", "Amount"):
+                return "Double"
+            if outer.endswith("Id"):
+                return "UUID"
+            if any(outer.endswith(s) for s in ("Status", "Type", "Kind", "State", "Category", "Role")):
+                return "String"
+            return "String"
+
+        def _getter_expr(f):
+            fname = f["name"]
+            method = fname[0].upper() + fname[1:]
+            orig = f.get("type", "String")
+            rtype = _response_type(orig)
+            outer = orig.split("<")[0]
+            g = f"e.get{method}()"
+            if rtype == orig:
+                # JDK type that stays as-is: LocalDate/LocalDateTime → toString()
+                if outer in ("LocalDate", "LocalDateTime", "Instant"):
+                    return f"{g} != null ? {g}.toString() : null"
+                return g
+            if rtype == "Double":
+                if outer == "Money":
+                    return f"{g} != null ? {g}.getAmount() : null"
+                return f"{g} != null ? {g}.doubleValue() : null"
+            if rtype == "String":
+                # Temporal JDK types → toString()
+                if outer in ("LocalDate", "LocalDateTime", "Instant"):
+                    return f"{g} != null ? {g}.toString() : null"
+                # VO wrapper → getValue()
+                return f"{g} != null ? {g}.getValue() : null"
+            if rtype == "UUID":
+                return f"{g} != null ? {g}.value() : null"
+            return g
+
+        response_args = ["                e.getId().value()"]
+        for f in non_id_fields:
+            response_args.append(f"                {_getter_expr(f)}")
+        response_args_str = ",\n".join(response_args)
+
+        entity_var = entity[0].lower() + entity[1:]
+
+        return f"""package {package_name};
+
+import {model_import};
+import {dto_pkg}.{entity}Response;
+import {uc_pkg}.{list_uc};
+import {uc_pkg}.{list_q};
+import {uc_pkg}.{get_uc};
+import {uc_pkg}.{get_q};
+import {uc_pkg}.{reg_uc};
+import {uc_pkg}.{reg_cmd};
+import {uc_pkg}.{upd_uc};
+import {uc_pkg}.{upd_cmd};
+import {uc_pkg}.{deact_uc};
+import {uc_pkg}.{deact_cmd};
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/{entity.lower()}s")
+@RequestMapping("/{url_path}")
+@CrossOrigin(origins = "*")
 public class {class_name} {{
 
-    // TODO: inject use cases via constructor injection
+    private final {list_uc} listAll;
+    private final {get_uc} getById;
+    private final {reg_uc} register;
+    private final {upd_uc} update;
+    private final {deact_uc} deactivate;
 
+    public {class_name}(
+            {list_uc} listAll,
+            {get_uc} getById,
+            {reg_uc} register,
+            {upd_uc} update,
+            {deact_uc} deactivate) {{
+        this.listAll    = listAll;
+        this.getById    = getById;
+        this.register   = register;
+        this.update     = update;
+        this.deactivate = deactivate;
+    }}
+
+    @GetMapping
+    public List<{entity}Response> getAll() {{
+        return listAll.execute(new {list_q}())
+                .stream().map(this::toResponse).collect(Collectors.toList());
+    }}
+
+    @GetMapping("/{{id}}")
+    public ResponseEntity<{entity}Response> getOne(@PathVariable UUID id) {{
+        return getById.execute(new {get_q}(id))
+                .map(this::toResponse)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }}
+
+    @PostMapping
+    public ResponseEntity<{entity}Response> create(@RequestBody {reg_cmd} cmd) {{
+        return ResponseEntity.ok(toResponse(register.execute(cmd)));
+    }}
+
+    @PutMapping("/{{id}}")
+    public ResponseEntity<{entity}Response> updateOne(@PathVariable UUID id,
+                                                       @RequestBody {upd_cmd} cmd) {{
+        return ResponseEntity.ok(toResponse(update.execute(cmd)));
+    }}
+
+    @DeleteMapping("/{{id}}")
+    public ResponseEntity<Void> deleteOne(@PathVariable UUID id) {{
+        deactivate.execute(new {deact_cmd}(id));
+        return ResponseEntity.noContent().build();
+    }}
+
+    private {entity}Response toResponse({entity} e) {{
+        return new {entity}Response(
+{response_args_str}
+        );
+    }}
 }}
 """

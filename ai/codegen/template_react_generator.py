@@ -48,7 +48,18 @@ def _ts_type(java_type: str) -> str:
     if java_type.startswith("Optional<"):
         inner = java_type[9:-1]
         return f"{_ts_type(inner)} | null"
-    return JAVA_TO_TS.get(java_type, java_type)
+    if java_type in JAVA_TO_TS:
+        return JAVA_TO_TS[java_type]
+    # Domain VO type inference — keeps frontend aligned with backend *Response DTOs
+    outer = java_type.split("<")[0]
+    if outer.endswith("Id"):
+        return "string"
+    if any(outer.endswith(s) for s in ("Status", "Type", "Kind", "State", "Category", "Role")):
+        return "string"
+    if outer in ("Money", "Price", "Amount"):
+        return "number"
+    # Unknown → string (safe default)
+    return "string"
 
 
 def _camel(name: str) -> str:
@@ -88,26 +99,26 @@ class TemplateReactGenerator:
     def generate_api_service(self, entity: str, base_url_var: str = "API_BASE") -> str:
         lower = _camel(entity)
         return f"""import type {{ {entity} }} from '../types/{entity}';
+import {{ apiFetch }} from './apiFetch';
 
 const {base_url_var} = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 const ENDPOINT = `${{{base_url_var}}}/{lower}s`;
 
 export async function getAll{entity}s(): Promise<{entity}[]> {{
-  const res = await fetch(ENDPOINT);
+  const res = await apiFetch(ENDPOINT);
   if (!res.ok) throw new Error('Failed to fetch {lower}s');
   return res.json();
 }}
 
 export async function get{entity}ById(id: string): Promise<{entity}> {{
-  const res = await fetch(`${{ENDPOINT}}/${{id}}`);
+  const res = await apiFetch(`${{ENDPOINT}}/${{id}}`);
   if (!res.ok) throw new Error(`{entity} ${{id}} not found`);
   return res.json();
 }}
 
 export async function create{entity}(data: Omit<{entity}, 'id'>): Promise<{entity}> {{
-  const res = await fetch(ENDPOINT, {{
+  const res = await apiFetch(ENDPOINT, {{
     method: 'POST',
-    headers: {{ 'Content-Type': 'application/json' }},
     body: JSON.stringify(data),
   }});
   if (!res.ok) throw new Error('Failed to create {lower}');
@@ -115,9 +126,8 @@ export async function create{entity}(data: Omit<{entity}, 'id'>): Promise<{entit
 }}
 
 export async function update{entity}(id: string, data: Partial<{entity}>): Promise<{entity}> {{
-  const res = await fetch(`${{ENDPOINT}}/${{id}}`, {{
+  const res = await apiFetch(`${{ENDPOINT}}/${{id}}`, {{
     method: 'PUT',
-    headers: {{ 'Content-Type': 'application/json' }},
     body: JSON.stringify(data),
   }});
   if (!res.ok) throw new Error(`Failed to update {lower} ${{id}}`);
@@ -125,7 +135,7 @@ export async function update{entity}(id: string, data: Partial<{entity}>): Promi
 }}
 
 export async function delete{entity}(id: string): Promise<void> {{
-  const res = await fetch(`${{ENDPOINT}}/${{id}}`, {{ method: 'DELETE' }});
+  const res = await apiFetch(`${{ENDPOINT}}/${{id}}`, {{ method: 'DELETE' }});
   if (!res.ok) throw new Error(`Failed to delete {lower} ${{id}}`);
 }}
 """
@@ -339,7 +349,8 @@ export default function {entity}Page() {{
             "dependencies": {
                 "react": "^18.3.1",
                 "react-dom": "^18.3.1",
-                "react-router-dom": "^6.23.1"
+                "react-router-dom": "^6.23.1",
+                "keycloak-js": "^24.0.5"
             },
             "devDependencies": {
                 "@types/react": "^18.3.3",
@@ -357,10 +368,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,
-    proxy: {
-      '/api': { target: 'http://localhost:8080', changeOrigin: true },
-    },
+    port: 5173,
   },
 });
 """
@@ -416,18 +424,20 @@ export default defineConfig({
 """
 
     def generate_main_tsx(self) -> str:
-        return """import React from 'react';
-import ReactDOM from 'react-dom/client';
+        return """import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from './auth/AuthProvider';
 import App from './App';
 import './index.css';
 
+// StrictMode omitted intentionally: Keycloak must only be initialized once.
+// Future flags suppress React Router v7 upgrade warnings.
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <BrowserRouter>
+  <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <AuthProvider>
       <App />
-    </BrowserRouter>
-  </React.StrictMode>
+    </AuthProvider>
+  </BrowserRouter>
 );
 """
 
@@ -461,14 +471,125 @@ nav a:hover { background: rgba(255,255,255,0.1); }
 main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 """
 
-    def generate_env_example(self) -> str:
-        return "VITE_API_URL=http://localhost:8080\n"
+    def generate_env_example(self, project_name: str = "") -> str:
+        slug = project_name or "app"
+        return (
+            "VITE_API_URL=http://localhost:8080\n"
+            "VITE_KEYCLOAK_URL=http://localhost:8180\n"
+            f"VITE_KEYCLOAK_REALM={slug}\n"
+            f"VITE_KEYCLOAK_CLIENT_ID={slug}-frontend\n"
+        )
+
+    def generate_keycloak_ts(self, project_name: str) -> str:
+        slug = project_name or "app"
+        return f"""import Keycloak from 'keycloak-js';
+
+const keycloak = new Keycloak({{
+  url: import.meta.env.VITE_KEYCLOAK_URL ?? 'http://localhost:8180',
+  realm: import.meta.env.VITE_KEYCLOAK_REALM ?? '{slug}',
+  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? '{slug}-frontend',
+}});
+
+export default keycloak;
+"""
+
+    def generate_auth_provider_tsx(self) -> str:
+        return """import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import keycloak from './keycloak';
+
+interface AuthContextValue {
+  authenticated: boolean;
+  token: string | undefined;
+  username: string | undefined;
+  roles: string[];
+  login: () => void;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextValue>({
+  authenticated: false,
+  token: undefined,
+  username: undefined,
+  roles: [],
+  login: () => {},
+  logout: () => {},
+});
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const initStarted = useRef(false);
+
+  useEffect(() => {
+    // Guard against React StrictMode double-invocation
+    if (initStarted.current) return;
+    initStarted.current = true;
+
+    keycloak
+      .init({ onLoad: 'login-required', pkceMethod: 'S256' })
+      .then(auth => {
+        setAuthenticated(auth);
+        setInitialized(true);
+        setInterval(() => {
+          keycloak.updateToken(60).catch(() => keycloak.logout());
+        }, 30_000);
+      })
+      .catch(err => {
+        console.error('Keycloak init failed', err);
+        setInitialized(true);
+      });
+  }, []);
+
+  if (!initialized) return <p style={{ padding: 24 }}>Conectando con Keycloak…</p>;
+
+  const roles: string[] = keycloak.realmAccess?.roles ?? [];
+
+  const value: AuthContextValue = {
+    authenticated,
+    token: keycloak.token,
+    username: keycloak.tokenParsed?.preferred_username,
+    roles,
+    login: () => keycloak.login(),
+    logout: () => keycloak.logout({ redirectUri: window.location.origin }),
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  return useContext(AuthContext);
+}
+"""
+
+    def generate_api_fetch_ts(self) -> str:
+        return """import keycloak from '../auth/keycloak';
+
+/**
+ * Wrapper around fetch that automatically attaches the Keycloak Bearer token.
+ */
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  if (keycloak.authenticated) {
+    await keycloak.updateToken(30).catch(() => keycloak.logout());
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> ?? {}),
+  };
+
+  if (keycloak.token) {
+    headers['Authorization'] = `Bearer ${keycloak.token}`;
+  }
+
+  return fetch(url, { ...options, headers });
+}
+"""
 
     def generate_app_tsx(self, entities: list[str]) -> str:
         imports_pages = "\n".join(
             f"import {e}Page from './pages/{e}Page';" for e in entities
         )
-        nav_links = "\n          ".join(
+        nav_links = "\n        ".join(
             f'<Link to="/{_camel(e)}s">{e}s</Link>' for e in entities
         )
         routes = "\n          ".join(
@@ -477,15 +598,34 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
         first = _camel(entities[0]) + "s" if entities else ""
 
         return f"""import {{ Link, Navigate, Route, Routes }} from 'react-router-dom';
+import {{ useAuth }} from './auth/AuthProvider';
 {imports_pages}
 
 export default function App() {{
+  const {{ authenticated, username, roles, login, logout }} = useAuth();
+
+  if (!authenticated) {{
+    return (
+      <div style={{{{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 120 }}}}>
+        <h1>{entities[0] if entities else 'App'} Manager</h1>
+        <p>Inicia sesión para continuar</p>
+        <button onClick={{login}} style={{{{ padding: '10px 24px', fontSize: 16 }}}}>
+          Iniciar sesión con Keycloak
+        </button>
+      </div>
+    );
+  }}
+
   return (
     <>
-      <nav>
+      <nav style={{{{ display: 'flex', gap: 16, padding: '8px 16px', background: '#f5f5f5', alignItems: 'center' }}}}>
         {nav_links}
+        <span style={{{{ marginLeft: 'auto' }}}}>
+          {{username}} ({{roles.join(', ')}})
+        </span>
+        <button onClick={{logout}}>Cerrar sesión</button>
       </nav>
-      <main>
+      <main style={{{{ padding: 16 }}}}>
         <Routes>
           <Route path="/" element={{<Navigate to="/{first}" replace />}} />
           {routes}

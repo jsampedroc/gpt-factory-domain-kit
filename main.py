@@ -716,6 +716,147 @@ class FactoryOrchestrator:
         # ---- FLYWAY / INFRA GENERATOR ----
         self.flyway_generator = FlywaySqlGenerator()
 
+    def _generate_readme(self, f):
+        """Generates README.md with deploy instructions for the project."""
+        slug = f.project_slug
+        title = slug[0].upper() + slug[1:]
+        pkg = f.base_package
+        db_pass = f"{slug}_pass"
+
+        domain_model = getattr(f.state, "domain_model", None)
+        dm = domain_model.get("domain_model", domain_model) if domain_model else {}
+        modules = dm.get("modules", {}) if isinstance(dm, dict) else {}
+
+        # Build modules table
+        module_rows = []
+        for mod_name, mod_data in modules.items():
+            if not isinstance(mod_data, dict):
+                continue
+            use_cases = mod_data.get("use_cases", [])
+            uc_names = " · ".join(uc.get("name", "") for uc in use_cases if uc.get("name"))
+            mod_title = mod_name[0].upper() + mod_name[1:]
+            module_rows.append(f"| **{mod_title}** | {uc_names} |")
+
+        modules_table = "\n".join(module_rows) if module_rows else "| *(sin módulos)* | |"
+
+        content = f"""# {title}
+
+Aplicación generada por **AI Software Factory**.
+
+- **Backend**: Spring Boot 3.2 · Java 17 · Arquitectura Hexagonal · CQRS
+- **Base de datos**: PostgreSQL 16 (Docker) · Flyway migrations
+- **Frontend**: React 18 · TypeScript · Vite
+
+---
+
+## Requisitos
+
+| Herramienta | Versión |
+|---|---|
+| Docker Desktop / Colima | cualquiera |
+| Java | 17 |
+| Maven | 3.9 |
+| Node.js | 18 |
+
+---
+
+## Arranque rápido
+
+```bash
+# 1. Base de datos
+docker compose up -d postgres
+
+# 2. Backend  (Flyway crea tablas y carga datos de prueba automáticamente)
+cd backend && mvn spring-boot:run
+
+# 3. Frontend  (en otro terminal)
+cd frontend && npm install && npm run dev
+```
+
+| Servicio | URL |
+|---|---|
+| Backend API | http://localhost:8080 |
+| Frontend | http://localhost:3000 |
+| pgAdmin | http://localhost:5050 |
+
+---
+
+## Estructura
+
+```
+{slug}/
+├── docker-compose.yml
+├── backend/
+│   ├── pom.xml
+│   └── src/main/
+│       ├── java/{pkg.replace('.', '/')}/
+│       │   ├── {title}Application.java
+│       │   └── <módulo>/domain · application · infrastructure
+│       └── resources/
+│           ├── application.properties
+│           └── db/migration/
+│               ├── V1__create_tables.sql
+│               └── V2__insert_test_data.sql
+└── frontend/
+    └── src/  api · components · pages · types
+```
+
+---
+
+## Módulos y casos de uso
+
+| Módulo | Casos de uso |
+|---|---|
+{modules_table}
+
+---
+
+## Base de datos
+
+```properties
+# application.properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/{slug}
+spring.datasource.username={slug}
+spring.datasource.password={db_pass}
+```
+
+Credenciales pgAdmin: `admin@{slug}.com` / `admin`
+
+---
+
+## Añadir migraciones
+
+```sql
+-- backend/src/main/resources/db/migration/V3__mi_cambio.sql
+ALTER TABLE mi_tabla ADD COLUMN nueva_columna VARCHAR(255);
+```
+
+Flyway las ejecuta en orden al arrancar.
+
+---
+
+## Comandos útiles
+
+```bash
+# Logs de PostgreSQL
+docker compose logs -f postgres
+
+# Consola psql
+docker compose exec postgres psql -U {slug} -d {slug}
+
+# Parar servicios
+docker compose down
+
+# Parar y borrar datos
+docker compose down -v
+
+# Build frontend para producción
+cd frontend && npm run build
+```
+"""
+        readme_path = f.output_root / "README.md"
+        readme_path.write_text(content, encoding="utf-8")
+
     def _generate_infra_files(self, f):
         """
         Generates infrastructure support files for every project:
@@ -836,6 +977,12 @@ DB_PORT={db_port}
             f._bootstrap_main_class()
         except Exception as e:
             f.log(f"⚠️ Main class generation skipped: {e}")
+
+        # ---- README ----
+        try:
+            self._generate_readme(f)
+        except Exception as e:
+            f.log(f"⚠️ README generation skipped: {e}")
 
         f.log(f"🐘 Infra files generated (PostgreSQL + Flyway + docker-compose)")
 

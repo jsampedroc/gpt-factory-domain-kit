@@ -68,13 +68,35 @@ class UseCasePlannerAgent:
 
         usecases = []
 
-        for cap in capabilities:
+        # Normalize capabilities (can be list[str] or list[dict])
+        normalized_caps = []
+        for cap in capabilities or []:
+            if isinstance(cap, dict):
+                normalized_caps.append(cap)
+            elif isinstance(cap, str):
+                normalized_caps.append({"name": cap, "entity": None})
+
+        for cap in normalized_caps:
 
             name = cap.get("name")
             entity = cap.get("entity")
 
             if not name:
                 continue
+
+            # ---- Dynamic entity inference from capability name ----
+            if not entity:
+                name_lower = name.lower()
+                for e in entities:
+                    ename = e.get("name") if isinstance(e, dict) else e
+                    if ename and ename.lower() in name_lower:
+                        entity = ename
+                        break
+
+            # ---- Fallback: pick first entity if still None ----
+            if not entity and entities:
+                first = entities[0]
+                entity = first.get("name") if isinstance(first, dict) else first
 
             aggregate = aggregate_map.get(entity, entity)
 

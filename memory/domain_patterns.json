@@ -2049,5 +2049,283 @@
       "Appointment",
       "Invoice"
     ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money"
+    ],
+    "aggregates": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Invoice"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "InvoiceStatus",
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "InvoiceStatus",
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Treatment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "InvoiceStatus",
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Treatment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Treatment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Appointment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "InvoiceStatus",
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Treatment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Treatment"
+    ]
+  },
+  {
+    "entities": [
+      "Patient",
+      "Dentist",
+      "Appointment",
+      "Treatment",
+      "Invoice",
+      "Payment"
+    ],
+    "value_objects": [
+      "Money",
+      "TreatmentType"
+    ],
+    "aggregates": [
+      "Treatment"
+    ]
   }
 ]

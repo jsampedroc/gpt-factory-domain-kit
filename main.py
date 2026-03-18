@@ -20,6 +20,7 @@ from ai.utils.logging_helper import Tee
 from ai.utils.architecture_logger import ArchitectureLogger
 from ai.debug.pipeline_trace_logger import PipelineTraceLogger
 from ai.validators.layer_contracts import LayerContracts
+from ai.validators.cross_file_consistency_validator import CrossFileConsistencyValidator
 
 from ai.validators.structural_code_guard import StructuralCodeGuard
 from ai.validators.field_validator import FieldValidator
@@ -27,14 +28,14 @@ from ai.validators.field_validator import FieldValidator
 from ai.domain.semantic_domain_agent import SemanticDomainAgent
 from ai.graph.task_graph_builder import TaskGraphBuilder
 from ai.analysis.import_dependency_analyzer import ImportDependencyAnalyzer
-import ast  
-from collections import defaultdict
+import ast
 from ai.knowledge.domain_memory import DomainMemory
 from ai.knowledge.compile_memory import CompileMemory
 from ai.graph.code_dependency_graph import CodeDependencyGraph
 from ai.agents.refactor_agent import RefactorAgent
 from ai.agents.runtime_feedback_agent import RuntimeFeedbackAgent  # TODO: implement this module
 from ai.agents.evolution_agent import EvolutionAgent
+from ai.agents.autonomous_execution_agent import AutonomousExecutionAgent
 from ai.agents.code_generation_agent import CodeGenerationAgent
 from ai.domain.domain_model_validator import validate_domain_model
 from ai.graph.dependency_graph_builder import DependencyGraphBuilder
@@ -53,16 +54,145 @@ from ai.agents.file_codegen_agent import FileCodeGenerationAgent
 from ai.codegen.llm_code_generator import LLMCodeGenerator
 from ai.domain.business_capability_agent import BusinessCapabilityAgent
 from ai.planning.usecase_planner_agent import UseCasePlannerAgent
+from ai.planning.usecase_enricher_agent import UseCaseEnricherAgent
 from ai.domain.semantic_type_detector import TypeDiscoveryEngine
 from ai.domain.semantic_type_detector import detect_semantic_types
 
 from ai.domain.aggregate_lifecycle_agent import AggregateLifecycleAgent
 from ai.codegen.deterministic_skeleton_builder import DeterministicSkeletonBuilder
 
+def _curate_generated_imports(root_dir: str):
+    """
+    Lightweight deterministic curation pass for generated Java sources.
+    """
+    root = Path(root_dir)
+    if not root.exists():
+        return 0
+
+    java_files = list(root.rglob("*.java"))
+    fixed = 0
+
+    framework_imports = {
+        "@RestController": "import org.springframework.web.bind.annotation.RestController;",
+        "@RequestMapping": "import org.springframework.web.bind.annotation.RequestMapping;",
+        "@GetMapping": "import org.springframework.web.bind.annotation.GetMapping;",
+        "@PostMapping": "import org.springframework.web.bind.annotation.PostMapping;",
+        "@PutMapping": "import org.springframework.web.bind.annotation.PutMapping;",
+        "@DeleteMapping": "import org.springframework.web.bind.annotation.DeleteMapping;",
+        "@RequestBody": "import org.springframework.web.bind.annotation.RequestBody;",
+        "@PathVariable": "import org.springframework.web.bind.annotation.PathVariable;",
+        "@Service": "import org.springframework.stereotype.Service;",
+        "@Repository": "import org.springframework.stereotype.Repository;",
+        "@Mapper": "import org.mapstruct.Mapper;",
+        "@Entity": "import jakarta.persistence.Entity;",
+        "@Table": "import jakarta.persistence.Table;",
+        "@Column": "import jakarta.persistence.Column;",
+        "@Id": "import jakarta.persistence.Id;",
+        "@GeneratedValue": "import jakarta.persistence.GeneratedValue;",
+        "@OneToMany": "import jakarta.persistence.OneToMany;",
+        "@ManyToOne": "import jakarta.persistence.ManyToOne;",
+        "@JoinColumn": "import jakarta.persistence.JoinColumn;",
+    }
+
+    # Framework package prefixes — only these should ever be stripped from domain/application files
+    FRAMEWORK_PREFIXES = (
+        "import jakarta.",
+        "import org.springframework.",
+        "import org.mapstruct.",
+        "import org.hibernate.",
+    )
+
+    for f in java_files:
+        text = f.read_text(encoding="utf-8")
+        original = text
+
+        # Determine if this file belongs to the DOMAIN layer only.
+        # Application layer (usecase, service, dto) may legitimately use @Service etc.
+        pkg_m = re.search(r"^\s*package\s+([\w.]+)\s*;", text, re.MULTILINE)
+        own_pkg = pkg_m.group(1) if pkg_m else ""
+        is_domain_or_app = ".domain." in own_pkg or own_pkg.endswith(".domain")
+
+        lines = text.splitlines()
+        kept = []
+        seen_imports = set()
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("import "):
+                # Remove framework imports that leaked into domain/application layers
+                is_framework = any(stripped.startswith(pfx) for pfx in FRAMEWORK_PREFIXES)
+                if is_framework and is_domain_or_app:
+                    continue
+                if stripped in seen_imports:
+                    continue
+                seen_imports.add(stripped)
+            kept.append(line)
+
+        text = "\n".join(kept)
+
+        existing_imports = set(
+            ln.strip() for ln in text.splitlines() if ln.strip().startswith("import ")
+        )
+        imports_to_add = []
+
+        for token, imp in framework_imports.items():
+            if token in text and imp not in existing_imports:
+                imports_to_add.append(imp)
+
+        if "JpaRepository" in text:
+            imp = "import org.springframework.data.jpa.repository.JpaRepository;"
+            if imp not in existing_imports:
+                imports_to_add.append(imp)
+
+        if imports_to_add:
+            pkg_match = re.search(r"^(package\s+[^;]+;)", text, re.MULTILINE)
+            if pkg_match:
+                pkg_line = pkg_match.group(1)
+                text = text.replace(pkg_line, pkg_line + "\n\n" + "\n".join(sorted(set(imports_to_add))), 1)
+
+        text = re.sub(r"\n{3,}", "\n\n", text)
+
+        if text != original:
+            f.write_text(text + ("\n" if not text.endswith("\n") else ""), encoding="utf-8")
+            fixed += 1
+
+    return fixed
+
 # ---- AGGREGATE & BOUNDED CONTEXT DETECTORS ----
 from ai.domain.aggregate_detector import AggregateDetector
 from ai.domain.bounded_context_detector import BoundedContextDetector
 from ai.domain.module_architecture_agent import ModuleArchitectureAgent
+
+# ---- ENTITY EXTRACTION FROM IDEA ----
+def extract_entities_from_idea(idea: str):
+    keywords = [
+        "patients", "dentists", "appointments", "treatments",
+        "invoices", "payments", "children", "parents",
+        "allergies", "immunizations", "authorized pickups"
+    ]
+
+    mapping = {
+        "patients": "Patient",
+        "dentists": "Dentist",
+        "appointments": "Appointment",
+        "treatments": "Treatment",
+        "invoices": "Invoice",
+        "payments": "Payment",
+        "children": "Child",
+        "parents": "Parent",
+        "allergies": "Allergy",
+        "immunizations": "Immunization",
+        "authorized pickups": "AuthorizedPickup",
+    }
+
+    idea_lower = idea.lower()
+
+    detected = set()
+    for k in keywords:
+        if k in idea_lower:
+            detected.add(mapping[k])
+
+    return detected
 
 
 
@@ -104,7 +234,10 @@ class DomainAgent:
             idea=factory.idea,
             base_package=factory.base_package,
         )
-        domain_model = json.loads(raw)
+        try:
+            domain_model = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            domain_model = {}
         return domain_model
 
 
@@ -184,14 +317,16 @@ class CodeGenerationAgent:
 
                 for d in deps:
                     indegree.setdefault(d, 0)
-                    indegree[p] += 1
+                    indegree[d] += 1
 
             # Kahn topological sort
             queue = [p for p, deg in indegree.items() if deg == 0]
             ordered_paths = []
 
+            from collections import deque
+            queue = deque(queue)
             while queue:
-                node = queue.pop(0)
+                node = queue.popleft()
                 ordered_paths.append(node)
 
                 for target, deps in graph.items():
@@ -254,30 +389,28 @@ class CodeGenerationAgent:
             factory.log(f"🧱 Generating {layer} layer ({len(items)} files)")
 
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = []
+                future_to_item = {}
 
                 for item in items:
                     index += 1
-                    futures.append(
-                        pool.submit(
-                            factory._generate_single_file,
-                            item,
-                            index,
-                            total
-                        )
+                    future = pool.submit(
+                        factory._generate_single_file,
+                        item,
+                        index,
+                        total
                     )
+                    future_to_item[future] = item
 
-                for future in as_completed(futures):
+                for future in as_completed(future_to_item):
                     try:
                         future.result()
                     except Exception as e:
+                        failed_item = future_to_item[future]
                         factory.log(f"⚠️ Code generation task failed: {e}")
                         factory.log("↻ Retrying file generation sequentially")
 
                         try:
-                            item = getattr(e, "item", None)
-                            if item:
-                                factory._generate_single_file(item, 0, total)
+                            factory._generate_single_file(failed_item, 0, total)
                         except Exception as retry_err:
                             factory.log(f"❌ Retry failed: {retry_err}")
 
@@ -526,6 +659,7 @@ class FactoryOrchestrator:
         self.bounded_context_detector = BoundedContextDetector()
         self.capability_agent = BusinessCapabilityAgent()
         self.usecase_planner = UseCasePlannerAgent()
+        self.usecase_enricher = UseCaseEnricherAgent()
         self.aggregate_lifecycle_agent = AggregateLifecycleAgent()
         self.module_architecture_agent = ModuleArchitectureAgent()
         self.architecture_reasoning_agent = ArchitectureReasoningAgent()
@@ -546,11 +680,16 @@ class FactoryOrchestrator:
         self.ast_generator = ASTJavaGenerator()
         self.field_validator = FieldValidator()
         self.structural_guard = StructuralCodeGuard()
+        self.consistency_validator = CrossFileConsistencyValidator()
         self.file_codegen_agent = FileCodeGenerationAgent(factory)
 
         self.code_planner = CodePlanner()
         self.refactor_agent = RefactorAgent()
-        self.runtime_feedback_agent = RuntimeFeedbackAgent()  # TODO: implement this module
+        try:
+            self.runtime_feedback_agent = RuntimeFeedbackAgent()
+        except Exception:
+            self.runtime_feedback_agent = None
+        self.autonomous_execution_agent = AutonomousExecutionAgent()
         self.evolution_agent = EvolutionAgent()
         self.domain_graph_builder = DomainGraphBuilder()
         self.spec_graph_builder = SpecGraphBuilder()
@@ -599,6 +738,14 @@ class FactoryOrchestrator:
 
         if StateManager.load_specs(f.spec_file, f.state):
             f.log("📦 Loaded cached domain model and architecture")
+            # Always rebuild inventory from the domain model so that auto-assigned
+            # modules and new entities are reflected (the cached inventory may be stale)
+            try:
+                fresh_inventory = f.generate_inventory(f.state.domain_model)
+                f.state.architecture["file_inventory"] = fresh_inventory
+                f.log(f"📦 Inventory rebuilt from domain model ({len(fresh_inventory)} files)")
+            except Exception as _inv_err:
+                f.log(f"⚠️ Inventory rebuild skipped: {_inv_err}")
         else:
             # ---- PROJECT PIPELINE (planning → domain → architecture) ----
 
@@ -610,6 +757,26 @@ class FactoryOrchestrator:
 
             def step_domain(factory):
                 domain_model = self.domain_agent.run(factory)
+
+                # ---- DYNAMIC MANDATORY ENTITY VALIDATION ----
+                try:
+                    required = extract_entities_from_idea(factory.idea)
+
+                    dm_local = domain_model.get("domain_model", domain_model)
+                    entities = dm_local.get("entities", []) if isinstance(dm_local, dict) else []
+
+                    generated = {e.get("name") for e in entities if isinstance(e, dict) and e.get("name")}
+                    missing = required - generated
+
+                    if missing:
+                        raise RuntimeError(f"Domain model missing required entities: {missing}")
+
+                    factory.log(f"✅ Dynamic entity validation passed ({len(required)} required)")
+
+                except Exception as e:
+                    raise RuntimeError(f"Domain validation failed: {e}")
+
+                
                 domain_model = self.semantic_agent.run(factory, domain_model)
 
                 # ---- AGGREGATE DETECTION ----
@@ -653,6 +820,18 @@ class FactoryOrchestrator:
                     factory.log(f"📦 Domain modules detected ({len(modules)})")
                 except Exception as e:
                     factory.log(f"⚠️ Module architecture skipped: {e}")
+
+                # ---- USE CASE ENRICHMENT ----
+                try:
+                    domain_model = self.usecase_enricher.run(domain_model)
+                    dm = domain_model.get("domain_model", domain_model)
+                    total_ucs = sum(
+                        len(m.get("use_cases", []))
+                        for m in dm.get("modules", {}).values()
+                    )
+                    factory.log(f"🎯 Use cases enriched ({total_ucs} total)")
+                except Exception as e:
+                    factory.log(f"⚠️ Use case enrichment skipped: {e}")
 
                 # ---- BUSINESS CAPABILITY DISCOVERY ----
                 try:
@@ -989,6 +1168,26 @@ class FactoryOrchestrator:
         except Exception as e:
             f.log(f"⚠️ Test phase skipped: {e}")
 
+        # ---- AUTONOMOUS EXECUTION PHASE ----
+        try:
+            f.log("🤖 Autonomous execution agent starting")
+            self.autonomous_execution_agent.run(f)
+            f.log("🤖 Autonomous execution agent completed")
+        except Exception as e:
+            f.log(f"⚠️ Autonomous execution skipped: {e}")
+
+        # ---- CROSS-FILE CONSISTENCY VALIDATION ----
+        try:
+            result = self.consistency_validator.run(f)
+            accessor_fixes = result.get("accessor_fixes", 0)
+            arity_warnings = result.get("arity_warnings", [])
+            if accessor_fixes:
+                f.log(f"🔧 [CONSISTENCY] {accessor_fixes} accessor call(s) corrected")
+            for w in arity_warnings:
+                f.log(f"⚠️ [CONSISTENCY] {w}")
+        except Exception as e:
+            f.log(f"⚠️ Cross-file consistency validation skipped: {e}")
+
         # ---- COMPILE AND FIX LOOP ----
         MAX_FIX_ATTEMPTS = 5
         for attempt in range(MAX_FIX_ATTEMPTS):
@@ -1017,7 +1216,9 @@ class FactoryOrchestrator:
 
             # ---- RUNTIME FEEDBACK PHASE ----
             try:
-                runtime_report = self.runtime_feedback_agent.run(f)
+                runtime_report = None
+                if self.runtime_feedback_agent:
+                    runtime_report = self.runtime_feedback_agent.run(f)
 
                 evolve = self.evolution_agent.run(f, runtime_report)
 
@@ -1140,6 +1341,8 @@ class SoftwareFactory:
             return True, ""
 
         try:
+            curated = _curate_generated_imports(str(self.output_root / "backend" / "src" / "main" / "java"))
+            self.log(f"🩹 Import curation applied ({curated} files)")
             self.log("🔧 Running Maven compilation...")
 
             result = subprocess.run(
@@ -1394,7 +1597,7 @@ class SoftwareFactory:
             raise RuntimeError(f"Forbidden com.example detected in {rel}")
 
     # ------------------------------------------------
-    def save_to_disk(self, relative_path: str, content: str, is_protected: bool = False):
+    def save_to_disk(self, relative_path: str, content: str, is_protected: bool = False, override_write_once: bool = False):
         rel = self._normalize_rel(relative_path)
 
         # Build/root artifacts
@@ -1403,8 +1606,8 @@ class SoftwareFactory:
         else:
             full_path = self.resolve_output_path(rel)
 
-        # Domain kernel is write-once
-        if rel.startswith("domain/") and full_path.exists() and not is_protected:
+        # Domain kernel is write-once (skeleton stubs can be overwritten via override_write_once)
+        if rel.startswith("domain/") and full_path.exists() and not is_protected and not override_write_once:
             raise RuntimeError(f"Refusing to overwrite domain file (write-once): {rel}")
 
         # Java validation
@@ -1464,17 +1667,27 @@ class SoftwareFactory:
                     continue  # prevent duplicates across modules
                 entity_module[entity] = module_name
 
+        # Auto-assign unmoduled entities to a derived module name (snake_case of entity name)
+        all_entity_names = [e.get("name") for e in dm.get("entities", []) if e.get("name")]
+        for entity_name in all_entity_names:
+            if entity_name not in entity_module:
+                # derive module name: Patient → patient, DentalRecord → dentalrecord
+                entity_module[entity_name] = entity_name.lower()
+
         seen_entities = set()
 
         entity_map = {e.get("name"): e for e in dm.get("entities", [])}
 
         # ---------------- ENUMS ----------------
         for enum in dm.get("global_enums", []):
+            enum_name = enum.get("name") if isinstance(enum, dict) else enum
+            if not enum_name:
+                continue
             inventory.append({
-                "path": f"domain/shared/{enum['name']}.java",
-                "entity": enum["name"],
+                "path": f"domain/shared/{enum_name}.java",
+                "entity": enum_name,
                 "description": "ENUM",
-                "values": enum.get("values", []),
+                "values": enum.get("values", []) if isinstance(enum, dict) else [],
             })
 
         # ---------------- VALUE OBJECTS ----------------
@@ -1527,13 +1740,20 @@ class SoftwareFactory:
                 "module": vo_module,
             })
 
+        # Build a map: module_name -> list of use_cases from domain model
+        module_use_cases = {}
+        for mod_name, mod_data in dm.get("modules", {}).items():
+            ucs = mod_data.get("use_cases", [])
+            if ucs:
+                module_use_cases[mod_name] = ucs
+
         layers = [
             ("domain/valueobject", "{name}Id.java", "ID RECORD"),
             ("domain/model", "{name}.java", "ENTITY"),
             ("domain/repository", "{name}Repository.java", "REPOSITORY INTERFACE"),
             ("domain/service", "{name}DomainService.java", "DOMAIN SERVICE"),
 
-            ("application/usecase", "{name}UseCase.java", "USECASE"),
+            # USECASE slot handled separately (per use case, not per entity)
             ("application/dto", "{name}Request.java", "DTO_REQUEST"),
             ("application/dto", "{name}Response.java", "DTO_RESPONSE"),
             ("application/mapper", "{name}Mapper.java", "MAPPER"),
@@ -1557,6 +1777,93 @@ class SoftwareFactory:
             ent = entity_map.get(entity_name)
             if not ent:
                 continue
+
+            # ---- Use cases: one file per named use case (or fallback to generic) ----
+            module_ucs = module_use_cases.get(module_name, [])
+            # Filter to use cases that mention this entity
+            entity_ucs = [
+                uc for uc in module_ucs
+                if entity_name.lower() in uc.get("name", "").lower()
+                or entity_name in uc.get("returns", "")
+                or any(entity_name.lower() in str(inp).lower() for inp in uc.get("inputs", []))
+            ]
+            # If no entity-specific match, use all module use cases (e.g. single-entity module)
+            if not entity_ucs and module_ucs:
+                # Only add if this is the primary entity for the module
+                primary_entity = next(iter(dm.get("modules", {}).get(module_name, {}).get("entities", [])), None)
+                if primary_entity == entity_name:
+                    entity_ucs = module_ucs
+
+            if entity_ucs:
+                for uc in entity_ucs:
+                    uc_name = uc.get("name", "")
+                    if not uc_name:
+                        continue
+                    uc_type = uc.get("type", "command")
+                    uc_inputs = uc.get("inputs", [])
+                    uc_returns = uc.get("returns", entity_name)
+                    uc_description = uc.get("description", "")
+
+                    usecase_path = f"modules/{module_name}/application/usecase/{uc_name}UseCase.java"
+                    if usecase_path not in seen:
+                        seen.add(usecase_path)
+                        inventory.append({
+                            "path": usecase_path,
+                            "entity": entity_name,
+                            "description": "USECASE",
+                            "module": module_name,
+                            "fields": ent.get("fields", []),
+                            "use_case_name": uc_name,
+                            "use_case_type": uc_type,
+                            "use_case_inputs": uc_inputs,
+                            "use_case_returns": uc_returns,
+                            "use_case_description": uc_description,
+                        })
+
+                    # Command or Query DTO
+                    dto_suffix = "Command" if uc_type == "command" else "Query"
+                    dto_path = f"modules/{module_name}/application/usecase/{uc_name}{dto_suffix}.java"
+                    if dto_path not in seen:
+                        seen.add(dto_path)
+                        inventory.append({
+                            "path": dto_path,
+                            "entity": entity_name,
+                            "description": f"USECASE_{dto_suffix.upper()}",
+                            "module": module_name,
+                            "fields": uc_inputs,
+                            "use_case_name": uc_name,
+                            "use_case_type": uc_type,
+                        })
+            else:
+                # Fallback: one generic UseCase per entity + its Command DTO
+                generic_path = f"modules/{module_name}/application/usecase/{entity_name}UseCase.java"
+                if generic_path not in seen:
+                    seen.add(generic_path)
+                    inventory.append({
+                        "path": generic_path,
+                        "entity": entity_name,
+                        "description": "USECASE",
+                        "module": module_name,
+                        "fields": ent.get("fields", []),
+                        "use_case_name": entity_name,
+                        "use_case_type": "command",
+                        "use_case_inputs": [],
+                        "use_case_returns": entity_name,
+                        "use_case_description": "",
+                    })
+                cmd_path = f"modules/{module_name}/application/usecase/{entity_name}Command.java"
+                if cmd_path not in seen:
+                    seen.add(cmd_path)
+                    inventory.append({
+                        "path": cmd_path,
+                        "entity": entity_name,
+                        "description": "USECASE_COMMAND",
+                        "module": module_name,
+                        "fields": [],
+                        "use_case_name": entity_name,
+                        "use_case_type": "command",
+                        "use_case_inputs": [],
+                    })
 
             for folder, tpl, desc in layers:
 
@@ -1720,6 +2027,9 @@ class SoftwareFactory:
             "    }\n\n"
             "    public ID id() {\n"
             "        return id;\n"
+            "    }\n\n"
+            "    public ID getId() {\n"
+            "        return id;\n"
             "    }\n"
             "}\n"
         )
@@ -1838,6 +2148,24 @@ class SoftwareFactory:
         try:
             mode = item.get("description")
 
+            if mode in {"ENUM", "GLOBAL_ENUM", "SHARED_ENUM"} or (
+                mode == "VALUEOBJECT" and item.get("values")
+            ):
+                # Deterministic enum — never delegate to LLM, prevents jakarta leaks
+                pkg = self._expected_package_for(rel_path)
+                class_name = Path(rel_path).stem
+                enum_values = item.get("values", [])
+                if isinstance(enum_values, list) and enum_values:
+                    vals_str = ",\n    ".join(
+                        v.upper() if isinstance(v, str) else str(v).upper()
+                        for v in enum_values
+                    )
+                    code = f"package {pkg};\n\npublic enum {class_name} {{\n    {vals_str}\n}}\n"
+                    self.log(f"🧩 Deterministic enum generated for {class_name}")
+                    self.save_to_disk(rel_path, code, override_write_once=True)
+                    self.state.signatures[rel_path] = signature
+                    return
+
             if mode == "ENTITY":
                 # Use fields from inventory (source of truth) instead of deterministic_spec
                 fields = item.get("fields", [])
@@ -1864,6 +2192,27 @@ class SoftwareFactory:
                 self.save_to_disk(rel_path, code)
                 self.state.signatures[rel_path] = signature
                 return
+
+            if mode == "VALUEOBJECT":
+                # Deterministic value object — avoids LLM jakarta leaks in domain layer
+                fields = item.get("fields", [])
+                pkg = self._expected_package_for(rel_path)
+                class_name = Path(rel_path).stem
+
+                code = self.ast_generator.generate_class(
+                    pkg,
+                    class_name,
+                    fields,
+                    base_package=self.base_package,
+                    module=module
+                )
+
+                self.log(f"🧩 AST generator used for VO {class_name}")
+
+                self.save_to_disk(rel_path, code, override_write_once=True)
+                self.state.signatures[rel_path] = signature
+                return
+
         except Exception:
             pass
 
@@ -1902,7 +2251,58 @@ class SoftwareFactory:
                 self.state.signatures[rel_path] = signature
                 return
 
-            if mode in {"SERVICE", "USECASE", "DOMAIN SERVICE"}:
+            if mode == "USECASE":
+                uc_name = item.get("use_case_name") or entity
+                uc_type = item.get("use_case_type", "command")
+                uc_inputs = item.get("use_case_inputs", [])
+                uc_returns = item.get("use_case_returns", entity)
+                uc_desc = item.get("use_case_description", "")
+                entity_fields = item.get("fields", [])
+
+                code = self.template_generator.generate_usecase(
+                    pkg,
+                    uc_name,
+                    entity,
+                    uc_type,
+                    uc_inputs,
+                    uc_returns,
+                    uc_desc,
+                    self.base_package,
+                    module=module,
+                    entity_fields=entity_fields,
+                )
+
+                self.log(f"🧩 UseCase deterministic body generated for {uc_name}UseCase")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode == "USECASE_COMMAND":
+                uc_name = item.get("use_case_name") or Path(rel_path).stem.replace("Command", "")
+                uc_inputs = item.get("use_case_inputs", item.get("fields", []))
+
+                code = self.template_generator.generate_usecase_command(pkg, uc_name, uc_inputs)
+
+                self.log(f"🧩 Command record generated for {uc_name}Command")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode == "USECASE_QUERY":
+                uc_name = item.get("use_case_name") or Path(rel_path).stem.replace("Query", "")
+                uc_inputs = item.get("use_case_inputs", item.get("fields", []))
+
+                code = self.template_generator.generate_usecase_query(pkg, uc_name, uc_inputs)
+
+                self.log(f"🧩 Query record generated for {uc_name}Query")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode in {"SERVICE", "DOMAIN SERVICE"}:
 
                 code = self.template_generator.generate_service(
                     pkg,
@@ -1971,6 +2371,23 @@ class SoftwareFactory:
                     )
                 except Exception:
                     pass
+
+                self.log(f"🧱 Template generator used for {class_name}")
+
+                self.save_to_disk(rel_path, code)
+                self.state.signatures[rel_path] = signature
+                return
+
+            if mode == "JPA_ADAPTER":
+
+                code = self.template_generator.generate_jpa_adapter(
+                    pkg,
+                    class_name,
+                    entity,
+                    item.get("fields", []),
+                    self.base_package,
+                    module=module
+                )
 
                 self.log(f"🧱 Template generator used for {class_name}")
 
@@ -2115,8 +2532,6 @@ class SoftwareFactory:
 
         verification = verify_java_code(code)
 
-        verification = verify_java_code(code)
-
         if not verification["valid"]:
             self.log(f"⚠️ Verification issues in {file_name}: {verification['issues']}")
             code = auto_fix_java_code(code, verification["issues"])
@@ -2169,7 +2584,14 @@ class SoftwareFactory:
         except Exception:
             pass
 
-        self.save_to_disk(rel_path, code)
+        try:
+            self.save_to_disk(rel_path, code)
+        except (ValueError, RuntimeError) as save_err:
+            # Layer contract or package violation: invalidate cache so retry calls the LLM fresh
+            if cache_file.exists():
+                cache_file.unlink()
+                self.log(f"🗑 Cache invalidated for {file_name} due to: {save_err}")
+            raise save_err
         # store new generation signature
         self.state.signatures[rel_path] = signature
 
@@ -2178,7 +2600,17 @@ class SoftwareFactory:
 # ------------------ Entrypoint ------------------
 if __name__ == "__main__":
 
-    factory = SoftwareFactory(" ".join(sys.argv[1:]))
+    cli_idea = " ".join(sys.argv[1:]).strip()
+    if not cli_idea:
+        # Load idea from config/architecture.yaml when not provided on CLI
+        try:
+            with open("config/architecture.yaml", "r", encoding="utf-8") as _cfg:
+                _arch = yaml.safe_load(_cfg)
+            cli_idea = _arch.get("project", {}).get("idea", "")
+        except Exception:
+            cli_idea = ""
+
+    factory = SoftwareFactory(cli_idea)
 
     # ---- TERMINAL LOG CAPTURE ----
     try:

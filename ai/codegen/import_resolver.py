@@ -4,37 +4,35 @@ from pathlib import Path
 
 
 # Build a map: ClassName -> package path derived from inventory.json
+# NOTE: built lazily so it picks up specs created during the current run
 INVENTORY_INDEX = {}
 
-try:
-    # inventory is stored inside specs/<project>.json under architecture.file_inventory
-    specs_dir = Path("specs")
 
-    if specs_dir.exists():
+def _rebuild_inventory_index():
+    """Re-scan specs/*.json and rebuild INVENTORY_INDEX in place."""
+    INVENTORY_INDEX.clear()
+    try:
+        specs_dir = Path("specs")
+        if not specs_dir.exists():
+            return
         for spec_file in specs_dir.glob("*.json"):
             data = json.loads(spec_file.read_text())
-
             inventory = data.get("architecture", {}).get("file_inventory", [])
-
             for item in inventory:
                 path = item.get("path")
-
                 if path and path.endswith(".java"):
                     class_name = Path(path).stem
-
-                    # base package path from inventory
                     pkg = path.replace(".java", "").replace("/", ".")
-
-                    # if inventory provides module but path is not under modules/
                     module = item.get("module")
                     if module and not pkg.startswith("modules."):
-                        # ensure module prefix exists so later normalization works
                         pkg = f"modules.{module}." + pkg if not pkg.startswith(f"{module}.") else f"modules.{pkg}"
-
                     INVENTORY_INDEX[class_name] = pkg
-except Exception:
-    # inventory is optional – resolver still works without it
-    pass
+    except Exception:
+        pass
+
+
+# Populate at import time (works if spec already exists, e.g. cached runs)
+_rebuild_inventory_index()
 
 
 JAVA_TYPES = {
@@ -117,6 +115,10 @@ def _extract_outer_type(type_str: str):
 
 def resolve_imports(code: str, fields: list, base_package: str, module: str):
 
+    # Rebuild inventory if empty (happens on first run when spec is created mid-session)
+    if not INVENTORY_INDEX:
+        _rebuild_inventory_index()
+
     imports = set()
 
     # --- Extra automatic import detection based on generated code ---
@@ -131,6 +133,22 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
     # Optional detection
     if "Optional<" in code or " Optional " in code:
         imports.add("import java.util.Optional;")
+
+    # List detection
+    if "List<" in code or " List " in code:
+        imports.add("import java.util.List;")
+
+    # Collectors detection (used in stream operations)
+    if "Collectors." in code:
+        imports.add("import java.util.stream.Collectors;")
+
+    # UUID detection
+    if "UUID" in code:
+        imports.add("import java.util.UUID;")
+
+    # Domain base class Entity (extends Entity<T>) — not the JPA @Entity annotation
+    if re.search(r"\bextends\s+Entity\b", code):
+        imports.add(f"import {base_package}.domain.shared.Entity;")
 
     # Jakarta validation annotations
     ANNOTATION_IMPORTS = {
@@ -151,6 +169,54 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
     # Spring annotations
     if "@Repository" in code:
         imports.add("import org.springframework.stereotype.Repository;")
+
+    # --- Spring Web annotations ---
+    if "@RestController" in code:
+        imports.add("import org.springframework.web.bind.annotation.RestController;")
+    if "@RequestMapping" in code:
+        imports.add("import org.springframework.web.bind.annotation.RequestMapping;")
+    if "@GetMapping" in code:
+        imports.add("import org.springframework.web.bind.annotation.GetMapping;")
+    if "@PostMapping" in code:
+        imports.add("import org.springframework.web.bind.annotation.PostMapping;")
+    if "@PutMapping" in code:
+        imports.add("import org.springframework.web.bind.annotation.PutMapping;")
+    if "@DeleteMapping" in code:
+        imports.add("import org.springframework.web.bind.annotation.DeleteMapping;")
+    if "@RequestBody" in code:
+        imports.add("import org.springframework.web.bind.annotation.RequestBody;")
+    if "@PathVariable" in code:
+        imports.add("import org.springframework.web.bind.annotation.PathVariable;")
+
+    # --- Spring Service ---
+    if "@Service" in code:
+        imports.add("import org.springframework.stereotype.Service;")
+
+    # --- MapStruct ---
+    if "@Mapper" in code:
+        imports.add("import org.mapstruct.Mapper;")
+
+    # --- JPA / Jakarta persistence ---
+    if "@Entity" in code:
+        imports.add("import jakarta.persistence.Entity;")
+    if "@Table" in code:
+        imports.add("import jakarta.persistence.Table;")
+    if "@Column" in code:
+        imports.add("import jakarta.persistence.Column;")
+    if "@Id" in code:
+        imports.add("import jakarta.persistence.Id;")
+    if "@GeneratedValue" in code:
+        imports.add("import jakarta.persistence.GeneratedValue;")
+    if "@OneToMany" in code:
+        imports.add("import jakarta.persistence.OneToMany;")
+    if "@ManyToOne" in code:
+        imports.add("import jakarta.persistence.ManyToOne;")
+    if "@JoinColumn" in code:
+        imports.add("import jakarta.persistence.JoinColumn;")
+
+    # --- Spring Data JPA ---
+    if "JpaRepository" in code:
+        imports.add("import org.springframework.data.jpa.repository.JpaRepository;")
 
     package_name = None
     class_name = None
@@ -184,10 +250,15 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
     IGNORED_TYPES = {
         "List", "Set", "Map", "Optional", "UUID",
         "LocalDate", "LocalDateTime", "Instant",
-        "Entity", "Table", "Column",
+        "Table", "Column",
         "Repository", "Service", "Controller",
         "Override", "Objects", "ValueObject",
-        "String", "Integer", "Long", "Double", "Boolean"
+        "String", "Integer", "Long", "Double", "Boolean",
+        "RestController", "RequestMapping", "GetMapping", "PostMapping",
+        "PutMapping", "DeleteMapping", "RequestBody", "PathVariable",
+        "Service", "Mapper",
+        "JpaRepository", "Entity", "Table", "Column", "Id", "GeneratedValue",
+        "OneToMany", "ManyToOne", "JoinColumn"
     }
 
     inferred_types = set()
@@ -195,6 +266,7 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
     for line in code.splitlines():
         matches = re.findall(r"\b([A-Z][A-Za-z0-9_]*)\b", line)
         for m in matches:
+            
             if m in IGNORED_TYPES:
                 continue
             inferred_types.add(m)
@@ -282,8 +354,28 @@ def resolve_imports(code: str, fields: list, base_package: str, module: str):
                     imports.add(f"import {base_package}.{module}.infrastructure.persistence.spring.{typ};")
                     continue
 
-                # value objects
+                # value objects / IDs
                 if typ.endswith("Id"):
+                    imports.add(f"import {base_package}.{module}.domain.valueobject.{typ};")
+                    continue
+
+                # application use cases
+                if typ.endswith("UseCase"):
+                    imports.add(f"import {base_package}.{module}.application.usecase.{typ};")
+                    continue
+
+                # application mappers (only multi-word names, not bare "Mapper")
+                if typ.endswith("Mapper") and len(typ) > len("Mapper"):
+                    imports.add(f"import {base_package}.{module}.application.mapper.{typ};")
+                    continue
+
+                # domain services (only multi-word names)
+                if typ.endswith("DomainService"):
+                    imports.add(f"import {base_package}.{module}.domain.service.{typ};")
+                    continue
+
+                # domain enums: *Status, *Type, *Kind, *State
+                if any(typ.endswith(sfx) for sfx in ("Status", "Type", "Kind", "State")):
                     imports.add(f"import {base_package}.{module}.domain.valueobject.{typ};")
                     continue
 

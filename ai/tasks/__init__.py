@@ -15,6 +15,7 @@ from .systemic_fix_task import build_systemic_fix_task
 from .dependency_graph_task import build_dependency_graph_task
 from .type_registry_task import build_type_registry_task    
 from .compile_fix_task import build_compile_fix_task
+from .usecase_body_task import build_usecase_body_task
 
 __all__ = [
     "build_domain_model_task",
@@ -32,5 +33,6 @@ __all__ = [
     "build_systemic_fix_task",
     "build_dependency_graph_task",
     "build_type_registry_task",
-    "build_compile_fix_task"
+    "build_compile_fix_task",
+    "build_usecase_body_task"
 ]

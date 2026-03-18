@@ -1,5 +1,6 @@
 project:
-  name: "preschoolmanagement" # Tu paquete base será com.preschoolmanagement
+  name: "dentalclinic"
+  idea: "sistema de gestión de clínicas odontológicas con pacientes, dentistas, citas, tratamientos y facturación"
   version: "1.0.0"
 
 backend:

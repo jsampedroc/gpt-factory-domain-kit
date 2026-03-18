@@ -59,16 +59,9 @@ class JavaTypeResolver:
         shared_pkg = f"{base_package}.domain.shared"
 
         # Handle generic types like List<Child>
+        # Only normalize outer type; inner types are resolved separately
         if "<" in type_name and ">" in type_name:
-            outer = simple_name.split("<", 1)[0].strip()
-            inner = type_name.split("<", 1)[1].split(">", 1)[0].strip()
-
-            # Try resolving the inner generic type (e.g. Allergy in List<Allergy>)
-            inner_import = self.resolve(inner, base_package, module)
-            if inner_import:
-                return inner_import
-
-            simple_name = outer
+            simple_name = simple_name.split("<", 1)[0].strip()
 
         # Ignore Java primitives
         if simple_name in {"int", "long", "double", "float", "boolean", "short", "byte", "char"}:
@@ -89,15 +82,13 @@ class JavaTypeResolver:
         if simple_name in self.value_objects:
             return f"{vo_pkg}.{simple_name}"
 
-        # Fallback: assume domain model type.
-        # At this point we already filtered:
-        # - primitives
-        # - java.lang
-        # - known JDK types
-        # - Id / Status / Type
-        # - known value objects
-        #
-        # So remaining symbols are most likely domain model entities
-        # like Allergy, Immunization, AuthorizedPickup, Child, etc.
+        # Avoid treating common framework or unknown symbols as domain types
+        if simple_name[0].islower():
+            return None
 
-        return f"{model_pkg}.{simple_name}"
+        # Do NOT assume unknown types belong to domain.model.
+        # This avoids wrong imports like:
+        #   domain.model.List
+        #   domain.model.LocalDate
+        #   domain.model.Patient
+        return None

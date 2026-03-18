@@ -13,10 +13,17 @@ class DeterministicSkeletonBuilder:
     def build(self, inventory):
         for item in inventory:
 
-            path = item["path"]
+            path = item.get("path")
+            if not path:
+                # skip malformed items
+                continue
+
             class_name = Path(path).stem
             entity = item.get("entity")
-            desc = item["description"]
+
+            # Normalize description/type coming from different builders
+            raw_desc = item.get("description") or item.get("type") or ""
+            desc = str(raw_desc).upper()
 
             output_path = self.factory.resolve_output_path(path)
 
@@ -32,7 +39,7 @@ class DeterministicSkeletonBuilder:
 
     def _generate_skeleton(self, pkg, class_name, desc):
 
-        if desc in {"Entity", "ENTITY"}:
+        if desc == "ENTITY":
             return f"""package {pkg};
 
 public class {class_name} {{
@@ -42,7 +49,7 @@ public class {class_name} {{
 }}
 """
 
-        if desc in {"ValueObject", "VALUEOBJECT"}:
+        if desc == "VALUEOBJECT":
             return f"""package {pkg};
 
 public class {class_name} {{
@@ -52,7 +59,7 @@ public class {class_name} {{
 }}
 """
 
-        if desc in {"ID Record", "ID RECORD"}:
+        if desc == "ID RECORD":
             return f"""package {pkg};
 
 public record {class_name}(java.util.UUID value) {{
@@ -60,7 +67,7 @@ public record {class_name}(java.util.UUID value) {{
 }}
 """
 
-        if desc in {"Repository Interface", "REPOSITORY INTERFACE"}:
+        if desc == "REPOSITORY INTERFACE":
             return f"""package {pkg};
 
 public interface {class_name} {{
@@ -68,7 +75,7 @@ public interface {class_name} {{
 }}
 """
 
-        if desc in {"Service", "DOMAIN SERVICE"}:
+        if desc in {"SERVICE", "DOMAIN SERVICE"}:
             return f"""package {pkg};
 
 public class {class_name}Service {{
@@ -76,7 +83,7 @@ public class {class_name}Service {{
 }}
 """
 
-        if desc in {"Controller", "CONTROLLER"}:
+        if desc == "CONTROLLER":
             return f"""package {pkg};
 
 public class {class_name}Controller {{

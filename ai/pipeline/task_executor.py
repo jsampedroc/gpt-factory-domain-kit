@@ -43,6 +43,9 @@ class TaskExecutor:
 
         # ARBITRATION
         "arbitration": lambda tasks, **k: tasks.build_arbitration_task(**k),
+
+        # USE CASE BODY (LLM-powered execute() logic)
+        "usecase_body": lambda tasks, **k: tasks.build_usecase_body_task(**k),
     }
 
     def __init__(self):

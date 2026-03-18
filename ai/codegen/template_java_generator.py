@@ -61,8 +61,13 @@ class TemplateJavaGenerator:
 
         lines.append("\n")
 
+        # Derive @Table name: strip JpaEntity suffix, convert CamelCase → snake_case
+        entity_base = class_name.replace("JpaEntity", "")
+        import re as _re
+        table_name = _re.sub(r"([A-Z])", r"_\1", entity_base).lstrip("_").lower()
+
         lines.append("@Entity\n")
-        
+        lines.append(f"@Table(name = \"{table_name}\")\n")
         lines.append(f"public class {class_name} {{\n\n")
 
         lines.append("    @Id\n")

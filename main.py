@@ -62,6 +62,7 @@ from ai.domain.aggregate_lifecycle_agent import AggregateLifecycleAgent
 from ai.codegen.deterministic_skeleton_builder import DeterministicSkeletonBuilder
 from ai.codegen.template_react_generator import TemplateReactGenerator
 from ai.codegen.frontend_inventory_builder import FrontendInventoryBuilder
+from ai.codegen.flyway_sql_generator import FlywaySqlGenerator
 
 def _curate_generated_imports(root_dir: str):
     """
@@ -712,6 +713,132 @@ class FactoryOrchestrator:
         self.react_generator = TemplateReactGenerator()
         self.frontend_inventory_builder = FrontendInventoryBuilder()
 
+        # ---- FLYWAY / INFRA GENERATOR ----
+        self.flyway_generator = FlywaySqlGenerator()
+
+    def _generate_infra_files(self, f):
+        """
+        Generates infrastructure support files for every project:
+          - docker-compose.yml          (PostgreSQL + pgAdmin)
+          - application.properties      (Spring Boot ← PostgreSQL)
+          - Flyway V1__create_tables.sql
+          - Flyway V2__insert_test_data.sql
+          - @SpringBootApplication main class
+        """
+        slug = f.project_slug
+        pkg = f.base_package
+        db_name = slug
+        db_user = slug
+        db_pass = f"{slug}_pass"
+        db_port = 5432
+
+        # ---- docker-compose.yml ----
+        docker_compose = f"""version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: {slug}_postgres
+    environment:
+      POSTGRES_DB: {db_name}
+      POSTGRES_USER: {db_user}
+      POSTGRES_PASSWORD: {db_pass}
+    ports:
+      - "{db_port}:{db_port}"
+    volumes:
+      - {slug}_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {db_user} -d {db_name}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: {slug}_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@{slug}.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+volumes:
+  {slug}_pgdata:
+"""
+
+        # ---- application.properties ----
+        app_props = f"""# ── Server ──────────────────────────────────────────────────────────────────
+server.port=8080
+
+# ── PostgreSQL ───────────────────────────────────────────────────────────────
+spring.datasource.url=jdbc:postgresql://localhost:{db_port}/{db_name}
+spring.datasource.username={db_user}
+spring.datasource.password={db_pass}
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+# ── JPA / Hibernate ──────────────────────────────────────────────────────────
+spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
+# validate: Hibernate checks schema vs entities (Flyway owns DDL)
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=false
+spring.jpa.properties.hibernate.format_sql=false
+
+# ── Flyway ───────────────────────────────────────────────────────────────────
+spring.flyway.enabled=true
+spring.flyway.locations=classpath:db/migration
+spring.flyway.baseline-on-migrate=true
+
+# ── CORS (React dev server) ───────────────────────────────────────────────────
+spring.mvc.cors.allowed-origins=http://localhost:3000
+"""
+
+        # ---- .env.example (for docker-compose variables) ----
+        env_example = f"""DB_NAME={db_name}
+DB_USER={db_user}
+DB_PASS={db_pass}
+DB_PORT={db_port}
+"""
+
+        # ---- Flyway SQL ----
+        domain_model = getattr(f.state, "domain_model", None)
+        v1_sql = ""
+        v2_sql = ""
+        if domain_model:
+            try:
+                v1_sql = self.flyway_generator.generate_v1_create_tables(domain_model)
+                v2_sql = self.flyway_generator.generate_v2_seed_data(domain_model, slug)
+            except Exception as e:
+                f.log(f"⚠️ Flyway SQL generation error: {e}")
+
+        # ---- Write all files ----
+        files = {
+            "docker-compose.yml": docker_compose,
+            "backend/src/main/resources/application.properties": app_props,
+            ".env.example": env_example,
+        }
+        if v1_sql:
+            files["backend/src/main/resources/db/migration/V1__create_tables.sql"] = v1_sql
+        if v2_sql:
+            files["backend/src/main/resources/db/migration/V2__insert_test_data.sql"] = v2_sql
+
+        for rel, content in files.items():
+            try:
+                full = f.output_root / rel
+                full.parent.mkdir(parents=True, exist_ok=True)
+                full.write_text(content, encoding="utf-8")
+            except Exception as e:
+                f.log(f"⚠️ Infra file skipped ({rel}): {e}")
+
+        # ---- @SpringBootApplication main class ----
+        try:
+            f._bootstrap_main_class()
+        except Exception as e:
+            f.log(f"⚠️ Main class generation skipped: {e}")
+
+        f.log(f"🐘 Infra files generated (PostgreSQL + Flyway + docker-compose)")
+
     def _generate_frontend(self, f):
         """
         Generates a complete React + TypeScript frontend for all domain entities.
@@ -801,6 +928,7 @@ class FactoryOrchestrator:
 
         # ---- BOOTSTRAP (project skeleton) ----
         f._bootstrap_pom()
+        f._bootstrap_main_class()
         f._bootstrap_domain_kernel()
 
         previous_domain = None
@@ -1307,6 +1435,12 @@ class FactoryOrchestrator:
 
         else:
             f.log("⚠️ Project generated but compilation still failing")
+
+        # ---- INFRA FILES (PostgreSQL + Flyway + docker-compose + main class) ----
+        try:
+            self._generate_infra_files(f)
+        except Exception as e:
+            f.log(f"⚠️ Infra generation skipped: {e}")
 
         # ---- FRONTEND GENERATION ----
         try:
@@ -2069,6 +2203,17 @@ class SoftwareFactory:
             "      <artifactId>mapstruct</artifactId>\n"
             "      <version>${mapstruct.version}</version>\n"
             "    </dependency>\n"
+            "    <!-- PostgreSQL driver -->\n"
+            "    <dependency>\n"
+            "      <groupId>org.postgresql</groupId>\n"
+            "      <artifactId>postgresql</artifactId>\n"
+            "      <scope>runtime</scope>\n"
+            "    </dependency>\n"
+            "    <!-- Flyway (versión gestionada por Spring Boot BOM) -->\n"
+            "    <dependency>\n"
+            "      <groupId>org.flywaydb</groupId>\n"
+            "      <artifactId>flyway-core</artifactId>\n"
+            "    </dependency>\n"
             "  </dependencies>\n\n"
             "  <build>\n"
             "    <plugins>\n"
@@ -2084,12 +2229,34 @@ class SoftwareFactory:
             "      <plugin>\n"
             "        <groupId>org.springframework.boot</groupId>\n"
             "        <artifactId>spring-boot-maven-plugin</artifactId>\n"
+            f"        <version>${{spring.boot.version}}</version>\n"
             "      </plugin>\n"
             "    </plugins>\n"
             "  </build>\n\n"
             "</project>\n"
         )
         self.save_to_disk("backend/pom.xml", pom_xml, is_protected=True)
+
+    def _bootstrap_main_class(self):
+        """Generates the Spring Boot entry point (@SpringBootApplication)."""
+        slug = self.project_slug
+        class_name = slug[0].upper() + slug[1:] + "Application"
+        pkg = self.base_package
+        code = (
+            f"package {pkg};\n\n"
+            "import org.springframework.boot.SpringApplication;\n"
+            "import org.springframework.boot.autoconfigure.SpringBootApplication;\n\n"
+            "@SpringBootApplication\n"
+            f"public class {class_name} {{\n\n"
+            "    public static void main(String[] args) {\n"
+            f"        SpringApplication.run({class_name}.class, args);\n"
+            "    }\n"
+            "}\n"
+        )
+        rel = f"backend/src/main/java/{self.base_package_path}/{class_name}.java"
+        full = self.output_root / rel
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(code, encoding="utf-8")
 
     def _bootstrap_domain_kernel(self):
         value_object_code = (

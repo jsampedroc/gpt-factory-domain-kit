@@ -1,5 +1,46 @@
 class TemplateJavaGenerator:
 
+    # JDK types that Hibernate can map natively — everything else must be converted
+    _JDK_TYPES = {
+        "String", "UUID", "Integer", "Long", "Double", "Float", "Boolean",
+        "int", "long", "double", "float", "boolean",
+        "LocalDate", "LocalDateTime", "Instant", "BigDecimal",
+        "Short", "Byte", "Character",
+    }
+
+    # Domain value-object / custom types → JPA-safe JDK equivalent
+    _VO_TYPE_MAP = {
+        "Money": "BigDecimal",
+        "Price": "BigDecimal",
+        "Amount": "BigDecimal",
+    }
+
+    @classmethod
+    def _jpa_type(cls, java_type: str) -> str:
+        """
+        Convert a domain type to a JPA-safe JDK type.
+        - Known VO wrappers (Money, Price…) → BigDecimal
+        - *Status / *Type / *Kind / *State value objects → String
+        - *Id value objects → UUID
+        - List<X> / Set<X> → kept as-is (caller handles separately)
+        - Everything else that is a JDK primitive/type → unchanged
+        """
+        if not java_type:
+            return "String"
+        outer = java_type.split("<")[0]
+        if outer in cls._JDK_TYPES:
+            return java_type  # already safe
+        if outer in cls._VO_TYPE_MAP:
+            return cls._VO_TYPE_MAP[outer]
+        if outer.endswith("Id"):
+            return "UUID"
+        if any(outer.endswith(sfx) for sfx in ("Status", "Type", "Kind", "State", "Category", "Role")):
+            return "String"
+        if java_type.startswith("List<") or java_type.startswith("Set<"):
+            return java_type  # handled elsewhere
+        # Unknown custom type → String (safe fallback)
+        return "String"
+
     def generate_jpa_entity(self, package_name, class_name, fields):
 
         lines = []
@@ -31,9 +72,18 @@ class TemplateJavaGenerator:
         lines.append("    public UUID getId() { return this.id; }\n")
         lines.append("    public void setId(UUID id) { this.id = id; }\n\n")
 
+        needs_bigdecimal = any(self._jpa_type(f.get("type", "")) == "BigDecimal" for f in fields if f.get("name") != "id")
+        needs_localdate = any(f.get("type", "").startswith("LocalDate") for f in fields if f.get("name") != "id")
+        needs_localdatetime = any(f.get("type", "") == "LocalDateTime" for f in fields if f.get("name") != "id")
+
+        if needs_bigdecimal:
+            lines.append("import java.math.BigDecimal;\n")
+        if needs_localdate or needs_localdatetime:
+            pass  # LocalDate/LocalDateTime imports added by import resolver
+
         for f in fields:
             name = f.get("name")
-            type_ = f.get("type")
+            type_ = self._jpa_type(f.get("type") or "String")
 
             if name == "id":
                 continue
@@ -46,7 +96,7 @@ class TemplateJavaGenerator:
         # getters and setters
         for f in fields:
             name = f.get("name")
-            type_ = f.get("type")
+            type_ = self._jpa_type(f.get("type") or "String")
 
             if name == "id":
                 continue
@@ -151,19 +201,68 @@ public class {class_name} {{
             jpa_entity_import = f"{base_package}.infrastructure.persistence.entity.{entity}JpaEntity"
             spring_repo_import = f"{base_package}.infrastructure.persistence.spring.SpringData{entity}Repository"
 
-        # Build per-field mapping lines
-        # Non-id fields: use their original type (enums, VOs, primitives stay as-is)
+        # Build per-field mapping lines with VO → JDK type conversion
         non_id_fields = [f for f in fields if f.get("name") != "id"]
 
-        to_jpa_setters = "\n".join(
-            f"        jpa.set{f['name'][0].upper() + f['name'][1:]}(domain.get{f['name'][0].upper() + f['name'][1:]}());"
-            for f in non_id_fields
-        )
+        def _setter_expr(f):
+            """domain.getX() → jpa.setX(expr) with VO unwrapping if needed."""
+            fname = f["name"]
+            method = fname[0].upper() + fname[1:]
+            orig_type = f.get("type", "String")
+            jpa_t = self._jpa_type(orig_type)
+            outer = orig_type.split("<")[0]
+            domain_getter = f"domain.get{method}()"
+            if jpa_t == orig_type:
+                # No conversion needed
+                expr = domain_getter
+            elif jpa_t == "BigDecimal":
+                if outer == "Money":
+                    expr = f"{domain_getter} != null ? java.math.BigDecimal.valueOf({domain_getter}.getAmount()) : null"
+                else:
+                    expr = f"{domain_getter} != null ? java.math.BigDecimal.valueOf({domain_getter}) : null"
+            elif jpa_t == "String":
+                if outer.endswith("Id"):
+                    expr = f"{domain_getter} != null ? {domain_getter}.getValue() : null"
+                else:
+                    # *Status/*Type/*Kind VO: call .getValue()
+                    expr = f"{domain_getter} != null ? {domain_getter}.getValue() : null"
+            elif jpa_t == "UUID":
+                expr = f"{domain_getter} != null ? {domain_getter}.value() : null"
+            else:
+                expr = domain_getter
+            return f"        jpa.set{method}({expr});"
+
+        def _domain_arg(f):
+            """jpa.getX() → arg in domain constructor with JDK → VO wrapping if needed."""
+            fname = f["name"]
+            method = fname[0].upper() + fname[1:]
+            orig_type = f.get("type", "String")
+            jpa_t = self._jpa_type(orig_type)
+            outer = orig_type.split("<")[0]
+            jpa_getter = f"jpa.get{method}()"
+            if jpa_t == orig_type:
+                return jpa_getter
+            elif jpa_t == "BigDecimal":
+                if outer == "Money":
+                    return f"{jpa_getter} != null ? new {orig_type}({jpa_getter}.doubleValue(), \"USD\") : null"
+                else:
+                    return jpa_getter
+            elif jpa_t == "String":
+                # Wrap back into VO
+                return f"new {orig_type}({jpa_getter})"
+            elif jpa_t == "UUID":
+                return f"new {orig_type}({jpa_getter})"
+            return jpa_getter
+
+        to_jpa_setters = "\n".join(_setter_expr(f) for f in non_id_fields)
 
         to_domain_args = ",\n            ".join(
             [f"new {entity}Id(jpa.getId())"] +
-            [f"jpa.get{f['name'][0].upper() + f['name'][1:]}()" for f in non_id_fields]
+            [_domain_arg(f) for f in non_id_fields]
         )
+
+        needs_bigdecimal = any(self._jpa_type(f.get("type", "")) == "BigDecimal" for f in non_id_fields)
+        bigdecimal_import = "import java.math.BigDecimal;\n" if needs_bigdecimal else ""
 
         return f"""package {package_name};
 
@@ -177,6 +276,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+{bigdecimal_import}
 
 @Repository
 public class {class_name} implements {entity}Repository {{

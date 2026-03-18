@@ -60,6 +60,8 @@ from ai.domain.semantic_type_detector import detect_semantic_types
 
 from ai.domain.aggregate_lifecycle_agent import AggregateLifecycleAgent
 from ai.codegen.deterministic_skeleton_builder import DeterministicSkeletonBuilder
+from ai.codegen.template_react_generator import TemplateReactGenerator
+from ai.codegen.frontend_inventory_builder import FrontendInventoryBuilder
 
 def _curate_generated_imports(root_dir: str):
     """
@@ -705,8 +707,81 @@ class FactoryOrchestrator:
 
         # ---- ARCHITECTURE LOGGER ----
         # (removed duplicate initialization; logger is on the factory)
-        
 
+        # ---- FRONTEND GENERATOR ----
+        self.react_generator = TemplateReactGenerator()
+        self.frontend_inventory_builder = FrontendInventoryBuilder()
+
+    def _generate_frontend(self, f):
+        """
+        Generates a complete React + TypeScript frontend for all domain entities.
+        Files are written under outputs/<project>/frontend/.
+        """
+        domain_model = getattr(f.state, "domain_model", None)
+        if not domain_model:
+            f.log("⚠️ Frontend skipped: no domain model available")
+            return
+
+        inventory = self.frontend_inventory_builder.build(domain_model, f.project_slug)
+        gen = self.react_generator
+        entities = [
+            item["entity"] for item in inventory if item["description"] == "TS_MODEL"
+        ]
+
+        f.log(f"⚛️ Generating React frontend for {len(entities)} entities")
+
+        for item in inventory:
+            path = item["path"]
+            desc = item["description"]
+            entity = item["entity"]
+            fields = item.get("fields", [])
+            all_entities = item.get("all_entities", entities)
+
+            try:
+                if desc == "REACT_SCAFFOLD":
+                    # Only write each scaffold file once
+                    fname = Path(path).name
+                    if fname == "package.json":
+                        content = gen.generate_package_json(f.project_slug)
+                    elif fname == "vite.config.ts":
+                        content = gen.generate_vite_config()
+                    elif fname == "tsconfig.json":
+                        content = gen.generate_tsconfig()
+                    elif fname == "tsconfig.node.json":
+                        content = gen.generate_tsconfig_node()
+                    elif fname == "index.html":
+                        content = gen.generate_index_html(f.project_slug)
+                    elif fname == ".env.example":
+                        content = gen.generate_env_example()
+                    elif fname == "main.tsx":
+                        content = gen.generate_main_tsx()
+                    elif fname == "index.css":
+                        content = gen.generate_index_css()
+                    elif fname == "App.tsx":
+                        content = gen.generate_app_tsx(all_entities)
+                    else:
+                        continue
+                elif desc == "TS_MODEL":
+                    content = gen.generate_model(entity, fields)
+                elif desc == "REACT_API":
+                    content = gen.generate_api_service(entity)
+                elif desc == "REACT_LIST":
+                    content = gen.generate_list_component(entity, fields)
+                elif desc == "REACT_FORM":
+                    content = gen.generate_form_component(entity, fields)
+                elif desc == "REACT_PAGE":
+                    content = gen.generate_page_component(entity)
+                else:
+                    continue
+
+                full_path = f.output_root / path
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                full_path.write_text(content, encoding="utf-8")
+
+            except Exception as e:
+                f.log(f"⚠️ Frontend file skipped ({path}): {e}")
+
+        f.log(f"⚛️ Frontend generated: {len(inventory)} files → {f.output_root}/frontend/")
 
     def run(self):
 
@@ -1233,6 +1308,12 @@ class FactoryOrchestrator:
         else:
             f.log("⚠️ Project generated but compilation still failing")
 
+        # ---- FRONTEND GENERATION ----
+        try:
+            self._generate_frontend(f)
+        except Exception as e:
+            f.log(f"⚠️ Frontend generation skipped: {e}")
+
         f.log("🏁 Orchestrator finished")
 
 
@@ -1601,7 +1682,9 @@ class SoftwareFactory:
         rel = self._normalize_rel(relative_path)
 
         # Build/root artifacts
-        if rel.startswith("backend/") and not rel.endswith(".java"):
+        if rel.startswith("frontend/"):
+            full_path = self.output_root / rel
+        elif rel.startswith("backend/") and not rel.endswith(".java"):
             full_path = self.output_root / rel
         else:
             full_path = self.resolve_output_path(rel)

@@ -1198,6 +1198,9 @@ public class SecurityConfig {{
             "backend/src/main/resources/messages_en.properties": messages_en,
             f"backend/src/main/java/{pkg_path}/shared/FileStorageService.java": file_storage_service_java,
             f"backend/src/main/java/{pkg_path}/shared/DocumentController.java": document_controller_java,
+            # Rounds 19-22: Scheduler, Audit Log, Waiting Room, Insurance
+            f"backend/src/main/java/{pkg_path}/shared/AppointmentReminderScheduler.java": tg.generate_appointment_reminder_scheduler(pkg),
+            f"backend/src/main/java/{pkg_path}/shared/WaitingRoomHandler.java": tg.generate_waiting_room_websocket_handler(pkg),
         }
 
         # ---- Dashboard files ----
@@ -1219,6 +1222,19 @@ public class SecurityConfig {{
                 files[f"backend/src/main/java/{pkg_path}/config/NotificationEventListener.java"] = notification_listener
             except Exception as e:
                 f.log(f"⚠️ Domain events generation error: {e}")
+
+        # ---- Audit Log + Insurance (multi-file generators) ----
+        try:
+            audit_files = tg.generate_audit_log_entity(pkg)
+            for rel, content in audit_files.items():
+                files[f"backend/{rel}"] = content
+            insurance_files = tg.generate_insurance_entity(pkg)
+            for rel, content in insurance_files.items():
+                files[f"backend/{rel}"] = content
+            audit_sql = tg.generate_audit_log_sql()
+            files["backend/src/main/resources/db/migration/V5__audit_insurance.sql"] = audit_sql
+        except Exception as e:
+            f.log(f"⚠️ Audit/Insurance generation error: {e}")
 
         # ---- Integration tests (Testcontainers) ----
         if dashboard_modules:
@@ -1340,6 +1356,13 @@ public class SecurityConfig {{
             "frontend/src/context/I18nContext.tsx": gen.generate_i18n_context_tsx(entities),
             "frontend/src/components/LanguageSwitcher.tsx": gen.generate_language_switcher(),
             "frontend/src/components/FileUpload.tsx": gen.generate_file_upload_tsx(),
+            # Domain-specific components (Rounds 16-22)
+            "frontend/src/config/api.ts": "export const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';\n",
+            "frontend/src/components/Calendar/AppointmentCalendar.tsx": gen.generate_appointment_calendar_tsx(),
+            "frontend/src/components/Odontogram/Odontogram.tsx": gen.generate_odontogram_tsx(),
+            "frontend/src/components/WaitingRoom/WaitingRoom.tsx": gen.generate_waiting_room_tsx(),
+            "frontend/src/components/ClinicalTimeline/ClinicalTimeline.tsx": gen.generate_clinical_timeline_tsx(),
+            "frontend/src/components/Insurance/InsuranceForm.tsx": gen.generate_insurance_form_tsx(),
         }
         for rel, content in auth_files.items():
             try:

@@ -1219,6 +1219,421 @@ class DashboardApiIT extends AbstractIntegrationTest {{
 '''
         return files
 
+    def generate_appointment_reminder_scheduler(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+/**
+ * Sends appointment reminder emails 24 hours before the scheduled time.
+ * Runs every hour via @Scheduled(cron).
+ * In production, track sent reminders in DB to avoid duplicates.
+ */
+@Service
+@EnableScheduling
+public class AppointmentReminderScheduler {{
+
+    private static final Logger log = LoggerFactory.getLogger(AppointmentReminderScheduler.class);
+    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+
+    private final JavaMailSender mailSender;
+
+    public AppointmentReminderScheduler(JavaMailSender mailSender) {{
+        this.mailSender = mailSender;
+    }}
+
+    /**
+     * Runs every hour. Override in subclass or via bean to inject real appointment data.
+     * This is the base implementation — wire with your AppointmentRepository.
+     */
+    @Scheduled(cron = "0 0 * * * *")
+    public void sendReminders() {{
+        log.info("[Scheduler] Checking appointments for 24h reminders at {{}}", LocalDateTime.now().format(FMT));
+        // TODO: inject AppointmentRepository and query appointments in next 24h
+        // List<Appointment> upcoming = appointmentRepo.findByDateBetween(now, now.plusHours(24));
+        // upcoming.stream().filter(a -> !a.reminderSent()).forEach(this::sendReminder);
+    }}
+
+    protected void sendReminder(String patientEmail, String patientName,
+                                 String dentistName, LocalDateTime appointmentDate) {{
+        try {{
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(patientEmail);
+            msg.setSubject("Recordatorio de cita dental");
+            msg.setText(String.format(
+                "Hola %s,\\n\\nLe recordamos que tiene una cita con el/la Dr/a. %s " +
+                "el día %s.\\n\\nSi necesita cancelar o modificar la cita, contacte con nosotros " +
+                "con antelación.\\n\\nUn saludo,\\nClínica Dental",
+                patientName, dentistName, appointmentDate.format(FMT)
+            ));
+            mailSender.send(msg);
+            log.info("[Scheduler] Reminder sent to {{}}", patientEmail);
+        }} catch (Exception e) {{
+            log.error("[Scheduler] Failed to send reminder to {{}}: {{}}", patientEmail, e.getMessage());
+        }}
+    }}
+}}
+"""
+
+    def generate_audit_log_entity(self, base_package: str) -> dict:
+        pkg_path = base_package.replace('.', '/')
+        return {
+            f"src/main/java/{pkg_path}/shared/AuditLog.java": f"""package {base_package}.shared;
+
+import jakarta.persistence.*;
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * Persists every CREATE/UPDATE/DELETE action for auditing purposes.
+ * Records who did what, when, and on which entity.
+ */
+@Entity
+@Table(name = "audit_log", indexes = {{
+    @Index(name = "idx_audit_entity", columnList = "entity_type, entity_id"),
+    @Index(name = "idx_audit_user", columnList = "performed_by"),
+}})
+public class AuditLog {{
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "entity_type", nullable = false, length = 64)
+    private String entityType;
+
+    @Column(name = "entity_id", length = 64)
+    private String entityId;
+
+    @Column(name = "action", nullable = false, length = 16)
+    private String action; // CREATE | UPDATE | DELETE
+
+    @Column(name = "performed_by", length = 128)
+    private String performedBy;
+
+    @Column(name = "performed_at", nullable = false)
+    private Instant performedAt = Instant.now();
+
+    @Column(name = "details", length = 2000)
+    private String details;
+
+    protected AuditLog() {{}}
+
+    public AuditLog(String entityType, String entityId, String action,
+                    String performedBy, String details) {{
+        this.entityType = entityType;
+        this.entityId = entityId;
+        this.action = action;
+        this.performedBy = performedBy;
+        this.performedAt = Instant.now();
+        this.details = details;
+    }}
+
+    public UUID getId() {{ return id; }}
+    public String getEntityType() {{ return entityType; }}
+    public String getEntityId() {{ return entityId; }}
+    public String getAction() {{ return action; }}
+    public String getPerformedBy() {{ return performedBy; }}
+    public Instant getPerformedAt() {{ return performedAt; }}
+    public String getDetails() {{ return details; }}
+}}
+""",
+            f"src/main/java/{pkg_path}/shared/AuditLogRepository.java": f"""package {base_package}.shared;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.UUID;
+
+@Repository
+public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {{
+    Page<AuditLog> findByEntityTypeAndEntityId(String entityType, String entityId, Pageable pageable);
+    Page<AuditLog> findByPerformedBy(String performedBy, Pageable pageable);
+}}
+""",
+            f"src/main/java/{pkg_path}/shared/AuditService.java": f"""package {base_package}.shared;
+
+import org.springframework.stereotype.Service;
+
+/**
+ * Records audit events for domain entities.
+ * Call from use cases after successful state changes.
+ */
+@Service
+public class AuditService {{
+
+    private final AuditLogRepository repository;
+
+    public AuditService(AuditLogRepository repository) {{
+        this.repository = repository;
+    }}
+
+    public void record(String entityType, String entityId,
+                       String action, String performedBy, String details) {{
+        repository.save(new AuditLog(entityType, entityId, action, performedBy, details));
+    }}
+
+    public void recordCreate(String entityType, String entityId, String performedBy) {{
+        record(entityType, entityId, "CREATE", performedBy, null);
+    }}
+
+    public void recordUpdate(String entityType, String entityId, String performedBy, String changes) {{
+        record(entityType, entityId, "UPDATE", performedBy, changes);
+    }}
+
+    public void recordDelete(String entityType, String entityId, String performedBy) {{
+        record(entityType, entityId, "DELETE", performedBy, null);
+    }}
+}}
+""",
+            f"src/main/java/{pkg_path}/shared/AuditLogController.java": f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
+
+/**
+ * REST endpoint for querying the audit log.
+ * Restricted to ADMIN role.
+ */
+@RestController
+@RequestMapping("/api/audit")
+@Tag(name = "Audit Log", description = "Query audit trail — Admin only")
+@PreAuthorize("hasRole('ADMIN')")
+public class AuditLogController {{
+
+    private final AuditLogRepository repository;
+
+    public AuditLogController(AuditLogRepository repository) {{
+        this.repository = repository;
+    }}
+
+    @GetMapping("/entity/{{type}}/{{id}}")
+    @Operation(summary = "Get audit history for a specific entity")
+    public ResponseEntity<Page<AuditLog>> byEntity(
+            @PathVariable String type,
+            @PathVariable String id,
+            Pageable pageable) {{
+        return ResponseEntity.ok(repository.findByEntityTypeAndEntityId(type, id, pageable));
+    }}
+
+    @GetMapping("/user/{{username}}")
+    @Operation(summary = "Get audit history for a specific user")
+    public ResponseEntity<Page<AuditLog>> byUser(
+            @PathVariable String username,
+            Pageable pageable) {{
+        return ResponseEntity.ok(repository.findByPerformedBy(username, pageable));
+    }}
+}}
+"""
+        }
+
+    def generate_waiting_room_websocket_handler(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.SendTo;
+import org.springframework.stereotype.Controller;
+
+/**
+ * WebSocket message handler for the waiting room feature.
+ * Frontend publishes to /app/waiting-room, server broadcasts to /topic/waiting-room.
+ */
+@Controller
+public class WaitingRoomHandler {{
+
+    /**
+     * Relay waiting room events (ADD, UPDATE, REMOVE) to all subscribers.
+     * In production, persist queue state to DB for recovery on restart.
+     */
+    @MessageMapping("/waiting-room")
+    @SendTo("/topic/waiting-room")
+    public Object relay(Object event) {{
+        return event;  // relay as-is; enrich here if needed
+    }}
+}}
+"""
+
+    def generate_insurance_entity(self, base_package: str) -> dict:
+        pkg_path = base_package.replace('.', '/')
+        return {
+            f"src/main/java/{pkg_path}/shared/Insurance.java": f"""package {base_package}.shared;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.*;
+import java.time.LocalDate;
+import java.util.UUID;
+
+/**
+ * Stores insurance/convenio data for a patient.
+ * One patient can have at most one active insurance record.
+ */
+@Entity
+@Table(name = "insurance")
+public class Insurance {{
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "patient_id", nullable = false)
+    private UUID patientId;
+
+    @NotBlank
+    @Column(name = "insurance_company", nullable = false, length = 128)
+    private String insuranceCompany;
+
+    @Column(name = "policy_number", length = 64)
+    private String policyNumber;
+
+    @Column(name = "coverage_type", length = 32)
+    private String coverageType; // FULL | PARTIAL | DENTAL_ONLY | NONE
+
+    @Min(0) @Max(100)
+    @Column(name = "coverage_percent")
+    private Integer coveragePercent;
+
+    @Future
+    @Column(name = "valid_until")
+    private LocalDate validUntil;
+
+    @Column(name = "notes", length = 500)
+    private String notes;
+
+    protected Insurance() {{}}
+
+    public Insurance(UUID patientId, String insuranceCompany, String policyNumber,
+                     String coverageType, Integer coveragePercent,
+                     LocalDate validUntil, String notes) {{
+        this.patientId = patientId;
+        this.insuranceCompany = insuranceCompany;
+        this.policyNumber = policyNumber;
+        this.coverageType = coverageType;
+        this.coveragePercent = coveragePercent;
+        this.validUntil = validUntil;
+        this.notes = notes;
+    }}
+
+    public UUID getId() {{ return id; }}
+    public UUID getPatientId() {{ return patientId; }}
+    public String getInsuranceCompany() {{ return insuranceCompany; }}
+    public String getPolicyNumber() {{ return policyNumber; }}
+    public String getCoverageType() {{ return coverageType; }}
+    public Integer getCoveragePercent() {{ return coveragePercent; }}
+    public LocalDate getValidUntil() {{ return validUntil; }}
+    public String getNotes() {{ return notes; }}
+}}
+""",
+            f"src/main/java/{pkg_path}/shared/InsuranceRepository.java": f"""package {base_package}.shared;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+import java.util.UUID;
+
+@Repository
+public interface InsuranceRepository extends JpaRepository<Insurance, UUID> {{
+    Optional<Insurance> findByPatientId(UUID patientId);
+}}
+""",
+            f"src/main/java/{pkg_path}/shared/InsuranceController.java": f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/insurance")
+@Tag(name = "Insurance", description = "Patient insurance / convenio management")
+public class InsuranceController {{
+
+    private final InsuranceRepository repository;
+
+    public InsuranceController(InsuranceRepository repository) {{
+        this.repository = repository;
+    }}
+
+    @GetMapping("/patient/{{patientId}}")
+    @Operation(summary = "Get insurance for a patient")
+    public ResponseEntity<Insurance> getByPatient(@PathVariable UUID patientId) {{
+        return repository.findByPatientId(patientId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }}
+
+    @PostMapping("/patient/{{patientId}}")
+    @Operation(summary = "Create or update insurance for a patient")
+    public ResponseEntity<Insurance> upsert(
+            @PathVariable UUID patientId,
+            @RequestBody InsuranceRequest req) {{
+        Insurance insurance = repository.findByPatientId(patientId)
+                .orElse(new Insurance(patientId, req.insuranceCompany(), req.policyNumber(),
+                        req.coverageType(), req.coveragePercent(), req.validUntil(), req.notes()));
+        return ResponseEntity.ok(repository.save(insurance));
+    }}
+
+    public record InsuranceRequest(
+            String insuranceCompany,
+            String policyNumber,
+            String coverageType,
+            Integer coveragePercent,
+            LocalDate validUntil,
+            String notes) {{}}
+}}
+"""
+        }
+
+    def generate_audit_log_sql(self) -> str:
+        return (
+            "-- Audit log: records all CREATE/UPDATE/DELETE actions\n"
+            "CREATE TABLE IF NOT EXISTS audit_log (\n"
+            "    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),\n"
+            "    entity_type   VARCHAR(64)  NOT NULL,\n"
+            "    entity_id     VARCHAR(64),\n"
+            "    action        VARCHAR(16)  NOT NULL,\n"
+            "    performed_by  VARCHAR(128),\n"
+            "    performed_at  TIMESTAMP    NOT NULL DEFAULT now(),\n"
+            "    details       VARCHAR(2000)\n"
+            ");\n"
+            "CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);\n"
+            "CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(performed_by);\n\n"
+            "-- Insurance / convenio per patient\n"
+            "CREATE TABLE IF NOT EXISTS insurance (\n"
+            "    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),\n"
+            "    patient_id         UUID         NOT NULL,\n"
+            "    insurance_company  VARCHAR(128) NOT NULL,\n"
+            "    policy_number      VARCHAR(64),\n"
+            "    coverage_type      VARCHAR(32),\n"
+            "    coverage_percent   INTEGER CHECK (coverage_percent BETWEEN 0 AND 100),\n"
+            "    valid_until        DATE,\n"
+            "    notes              VARCHAR(500)\n"
+            ");\n"
+            "CREATE INDEX IF NOT EXISTS idx_insurance_patient ON insurance(patient_id);\n"
+        )
+
     def generate_global_exception_handler(self, package_name: str) -> str:
         """@ControllerAdvice that returns structured JSON errors."""
         return f"""package {package_name};

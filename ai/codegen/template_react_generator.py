@@ -1313,6 +1313,690 @@ export function useWebSocket() {{
 }}
 """
 
+    def generate_appointment_calendar_tsx(self) -> str:
+        """
+        Generates AppointmentCalendar.tsx — weekly calendar with CSS grid.
+        Mon-Sun columns, time slots 08:00-20:00 in 30min increments.
+        Props: appointments array with id, title, start (ISO), end (ISO), color?.
+        """
+        return """import { useState } from 'react';
+
+interface CalendarAppointment {
+  id: string;
+  title: string;
+  start: string;  // ISO 8601
+  end: string;
+  color?: string;
+}
+
+interface Props {
+  appointments: CalendarAppointment[];
+  onSlotClick?: (date: Date) => void;
+  onAppointmentClick?: (appt: CalendarAppointment) => void;
+}
+
+const HOUR_START = 8;
+const HOUR_END = 20;
+const SLOT_HEIGHT = 40; // px per 30min slot
+const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const DAYS_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function getWeekDates(base: Date): Date[] {
+  const day = base.getDay();
+  const diff = (day === 0 ? -6 : 1 - day);
+  const monday = new Date(base);
+  monday.setDate(base.getDate() + diff);
+  monday.setHours(0, 0, 0, 0);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+}
+
+function minutesSinceMidnight(iso: string): number {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function isSameDay(d1: Date, d2: Date): boolean {
+  return d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate();
+}
+
+export default function AppointmentCalendar({ appointments, onSlotClick, onAppointmentClick }: Props) {
+  const [currentWeek, setCurrentWeek] = useState(new Date());
+  const weekDates = getWeekDates(currentWeek);
+
+  const slots = Array.from({ length: (HOUR_END - HOUR_START) * 2 }, (_, i) => {
+    const h = HOUR_START + Math.floor(i / 2);
+    const m = i % 2 === 0 ? '00' : '30';
+    return `${String(h).padStart(2, '0')}:${m}`;
+  });
+
+  const prevWeek = () => { const d = new Date(currentWeek); d.setDate(d.getDate() - 7); setCurrentWeek(d); };
+  const nextWeek = () => { const d = new Date(currentWeek); d.setDate(d.getDate() + 7); setCurrentWeek(d); };
+  const today = () => setCurrentWeek(new Date());
+
+  const weekLabel = `${weekDates[0].toLocaleDateString()} – ${weekDates[6].toLocaleDateString()}`;
+
+  return (
+    <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <button onClick={prevWeek} style={{ padding: '4px 10px' }}>‹</button>
+        <button onClick={today} style={{ padding: '4px 10px', fontSize: 12 }}>Hoy</button>
+        <button onClick={nextWeek} style={{ padding: '4px 10px' }}>›</button>
+        <span style={{ fontWeight: 600, marginLeft: 8 }}>{weekLabel}</span>
+      </div>
+
+      {/* Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', border: '1px solid #e0e0e0', borderRadius: 6, overflow: 'hidden' }}>
+        {/* Header row */}
+        <div style={{ background: '#f5f5f5', borderBottom: '1px solid #e0e0e0' }} />
+        {weekDates.map((d, i) => {
+          const isToday = isSameDay(d, new Date());
+          return (
+            <div key={i} style={{
+              background: isToday ? '#e3f2fd' : '#f5f5f5',
+              borderLeft: '1px solid #e0e0e0',
+              borderBottom: '1px solid #e0e0e0',
+              padding: '6px 4px',
+              textAlign: 'center',
+              fontSize: 12,
+              fontWeight: isToday ? 700 : 400,
+            }}>
+              <div>{DAYS[i]}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: isToday ? '#1976d2' : '#333' }}>
+                {d.getDate()}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Time slots */}
+        {slots.map((slot, si) => (
+          <>
+            {/* Time label */}
+            <div key={`label-${si}`} style={{
+              fontSize: 10, color: '#999', padding: '0 4px',
+              height: SLOT_HEIGHT, display: 'flex', alignItems: 'flex-start',
+              paddingTop: 2, borderBottom: si % 2 === 1 ? '1px solid #f0f0f0' : undefined,
+            }}>
+              {si % 2 === 0 ? slot : ''}
+            </div>
+            {/* Day columns */}
+            {weekDates.map((d, di) => {
+              const slotStart = new Date(d);
+              slotStart.setHours(HOUR_START + Math.floor(si / 2), si % 2 === 0 ? 0 : 30, 0, 0);
+
+              const dayAppts = appointments.filter(a => isSameDay(new Date(a.start), d));
+
+              return (
+                <div
+                  key={`slot-${si}-${di}`}
+                  onClick={() => onSlotClick?.(slotStart)}
+                  style={{
+                    height: SLOT_HEIGHT,
+                    borderLeft: '1px solid #e0e0e0',
+                    borderBottom: si % 2 === 1 ? '1px solid #f0f0f0' : '1px dashed #f5f5f5',
+                    position: 'relative',
+                    cursor: 'pointer',
+                    background: si % 2 === 0 ? '#fff' : '#fafafa',
+                  }}
+                >
+                  {si === 0 && dayAppts.map(appt => {
+                    const startMin = minutesSinceMidnight(appt.start) - HOUR_START * 60;
+                    const endMin = minutesSinceMidnight(appt.end) - HOUR_START * 60;
+                    const top = (startMin / 30) * SLOT_HEIGHT;
+                    const height = Math.max(((endMin - startMin) / 30) * SLOT_HEIGHT, SLOT_HEIGHT);
+                    return (
+                      <div
+                        key={appt.id}
+                        onClick={e => { e.stopPropagation(); onAppointmentClick?.(appt); }}
+                        style={{
+                          position: 'absolute',
+                          top, left: 2, right: 2, height,
+                          background: appt.color ?? '#1976d2',
+                          color: '#fff', borderRadius: 4,
+                          fontSize: 11, padding: '2px 4px',
+                          overflow: 'hidden', cursor: 'pointer',
+                          zIndex: 1,
+                          boxShadow: '0 1px 3px rgba(0,0,0,.2)',
+                        }}
+                      >
+                        {appt.title}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </>
+        ))}
+      </div>
+    </div>
+  );
+}
+"""
+
+    def generate_odontogram_tsx(self) -> str:
+        """
+        Generates Odontogram.tsx — interactive SVG odontogram with 32 adult teeth.
+        FDI notation. Status map: healthy=white, caries=yellow, treated=blue,
+        extracted=red, crown=purple, missing=grey.
+        """
+        return """import { useState } from 'react';
+
+type ToothStatus = 'healthy' | 'caries' | 'treated' | 'extracted' | 'crown' | 'missing';
+
+const STATUS_COLOR: Record<ToothStatus, string> = {
+  healthy: '#ffffff',
+  caries: '#ffcc02',
+  treated: '#4fc3f7',
+  extracted: '#ef9a9a',
+  crown: '#ce93d8',
+  missing: '#e0e0e0',
+};
+
+const STATUS_LABEL: Record<ToothStatus, string> = {
+  healthy: 'Sano',
+  caries: 'Caries',
+  treated: 'Tratado',
+  extracted: 'Extraído',
+  crown: 'Corona',
+  missing: 'Ausente',
+};
+
+// FDI notation: upper right 11-18, upper left 21-28, lower left 31-38, lower right 41-48
+const UPPER_RIGHT = [18, 17, 16, 15, 14, 13, 12, 11];
+const UPPER_LEFT  = [21, 22, 23, 24, 25, 26, 27, 28];
+const LOWER_LEFT  = [31, 32, 33, 34, 35, 36, 37, 38];
+const LOWER_RIGHT = [48, 47, 46, 45, 44, 43, 42, 41];
+
+interface Props {
+  patientId?: string;
+  initialState?: Record<number, ToothStatus>;
+  onChange?: (toothNum: number, status: ToothStatus) => void;
+  readOnly?: boolean;
+}
+
+function ToothSVG({ num, status, onClick }: { num: number; status: ToothStatus; onClick: () => void }) {
+  const color = STATUS_COLOR[status];
+  const isExtracted = status === 'extracted';
+  return (
+    <div
+      onClick={onClick}
+      title={`Diente ${num} - ${STATUS_LABEL[status]}`}
+      style={{ textAlign: 'center', cursor: 'pointer', width: 36 }}
+    >
+      <svg width="30" height="36" viewBox="0 0 30 36" style={{ display: 'block', margin: '0 auto' }}>
+        {isExtracted ? (
+          <line x1="5" y1="5" x2="25" y2="31" stroke="#ef5350" strokeWidth="3" />
+        ) : (
+          <>
+            <rect x="3" y="4" width="24" height="28" rx="5"
+              fill={color} stroke="#555" strokeWidth="1.5" />
+            {status === 'crown' && (
+              <rect x="3" y="4" width="24" height="10" rx="3"
+                fill="#ab47bc" stroke="#555" strokeWidth="1" />
+            )}
+            {status === 'caries' && (
+              <circle cx="15" cy="18" r="5" fill="#f57f17" />
+            )}
+          </>
+        )}
+      </svg>
+      <span style={{ fontSize: 9, color: '#888' }}>{num}</span>
+    </div>
+  );
+}
+
+export default function Odontogram({ patientId, initialState = {}, onChange, readOnly = false }: Props) {
+  const [teeth, setTeeth] = useState<Record<number, ToothStatus>>(initialState);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [legend, setLegend] = useState(false);
+
+  const getStatus = (num: number): ToothStatus => teeth[num] ?? 'healthy';
+
+  const handleClick = (num: number) => {
+    if (readOnly) return;
+    setSelected(num);
+  };
+
+  const applyStatus = (status: ToothStatus) => {
+    if (selected === null) return;
+    const next = { ...teeth, [selected]: status };
+    setTeeth(next);
+    onChange?.(selected, status);
+    setSelected(null);
+  };
+
+  const renderRow = (nums: number[], label: string) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 4 }}>
+      <span style={{ fontSize: 10, color: '#999', width: 60, textAlign: 'right', marginRight: 4 }}>{label}</span>
+      {nums.map(n => (
+        <div key={n} style={{
+          outline: selected === n ? '2px solid #1976d2' : 'none',
+          borderRadius: 6,
+        }}>
+          <ToothSVG num={n} status={getStatus(n)} onClick={() => handleClick(n)} />
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{ background: '#fafafa', borderRadius: 8, padding: 16, border: '1px solid #e0e0e0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h4 style={{ margin: 0 }}>Odontograma {patientId ? `— Paciente ${patientId}` : ''}</h4>
+        <button onClick={() => setLegend(v => !v)} style={{ fontSize: 12, padding: '2px 8px' }}>
+          {legend ? 'Ocultar' : 'Leyenda'}
+        </button>
+      </div>
+
+      {legend && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {(Object.keys(STATUS_COLOR) as ToothStatus[]).map(s => (
+            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+              <div style={{ width: 14, height: 14, background: STATUS_COLOR[s], border: '1px solid #aaa', borderRadius: 3 }} />
+              {STATUS_LABEL[s]}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ overflowX: 'auto' }}>
+        {renderRow(UPPER_RIGHT.concat(UPPER_LEFT), 'Superior')}
+        <div style={{ borderTop: '1px dashed #ccc', margin: '8px 0 8px 64px' }} />
+        {renderRow(LOWER_RIGHT.concat(LOWER_LEFT), 'Inferior')}
+      </div>
+
+      {selected !== null && !readOnly && (
+        <div style={{ marginTop: 12, padding: 10, background: '#e3f2fd', borderRadius: 6 }}>
+          <span style={{ fontSize: 13, marginRight: 8 }}>Diente {selected}:</span>
+          {(Object.keys(STATUS_COLOR) as ToothStatus[]).map(s => (
+            <button
+              key={s}
+              onClick={() => applyStatus(s)}
+              style={{
+                marginRight: 4, padding: '3px 10px', fontSize: 12,
+                background: STATUS_COLOR[s], border: '1px solid #aaa',
+                borderRadius: 4, cursor: 'pointer',
+              }}
+            >
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+          <button onClick={() => setSelected(null)} style={{ marginLeft: 8, fontSize: 12, background: '#eee' }}>
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    def generate_waiting_room_tsx(self) -> str:
+        """
+        Generates WaitingRoom.tsx — digital waiting room with WebSocket integration.
+        Uses STOMP over SockJS. Shows queue with status badges and call-next button.
+        """
+        return """import { useEffect, useState } from 'react';
+import { Client } from '@stomp/stompjs';
+import SockJS from 'sockjs-client';
+import { API_BASE } from '../config/api';
+
+interface WaitingPatient {
+  id: string;
+  name: string;
+  appointmentTime: string;
+  dentist: string;
+  status: 'waiting' | 'called' | 'in-progress' | 'done';
+}
+
+const STATUS_STYLE: Record<string, React.CSSProperties> = {
+  waiting:     { background: '#fff9c4', color: '#f57f17' },
+  called:      { background: '#e8f5e9', color: '#2e7d32', fontWeight: 700 },
+  'in-progress': { background: '#e3f2fd', color: '#1565c0' },
+  done:        { background: '#f5f5f5', color: '#9e9e9e' },
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  waiting: 'En espera',
+  called: '¡Llamado!',
+  'in-progress': 'En consulta',
+  done: 'Finalizado',
+};
+
+export default function WaitingRoom() {
+  const [queue, setQueue] = useState<WaitingPatient[]>([]);
+  const [client, setClient] = useState<Client | null>(null);
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    const c = new Client({
+      webSocketFactory: () => new SockJS(`${API_BASE}/ws`),
+      reconnectDelay: 5000,
+      onConnect: () => {
+        setConnected(true);
+        c.subscribe('/topic/waiting-room', (msg) => {
+          const event = JSON.parse(msg.body);
+          if (event.type === 'ADD') {
+            setQueue(prev => [...prev, event.patient]);
+          } else if (event.type === 'UPDATE') {
+            setQueue(prev => prev.map(p => p.id === event.patient.id ? event.patient : p));
+          } else if (event.type === 'REMOVE') {
+            setQueue(prev => prev.filter(p => p.id !== event.patientId));
+          }
+        });
+      },
+      onDisconnect: () => setConnected(false),
+    });
+    c.activate();
+    setClient(c);
+    return () => { c.deactivate(); };
+  }, []);
+
+  const callNext = () => {
+    const next = queue.find(p => p.status === 'waiting');
+    if (!next || !client?.connected) return;
+    const updated = { ...next, status: 'called' as const };
+    client.publish({
+      destination: '/app/waiting-room',
+      body: JSON.stringify({ type: 'UPDATE', patient: updated }),
+    });
+  };
+
+  const updateStatus = (id: string, status: WaitingPatient['status']) => {
+    if (!client?.connected) return;
+    const patient = queue.find(p => p.id === id);
+    if (!patient) return;
+    client.publish({
+      destination: '/app/waiting-room',
+      body: JSON.stringify({ type: 'UPDATE', patient: { ...patient, status } }),
+    });
+  };
+
+  const waiting = queue.filter(p => p.status === 'waiting').length;
+
+  return (
+    <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Sala de espera</h2>
+          <span style={{ fontSize: 12, color: connected ? '#2e7d32' : '#c62828' }}>
+            {connected ? '● Conectado en tiempo real' : '○ Desconectado'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 13, color: '#555' }}>{waiting} en espera</span>
+          <button
+            onClick={callNext}
+            disabled={waiting === 0}
+            style={{ padding: '8px 16px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: waiting > 0 ? 'pointer' : 'not-allowed' }}
+          >
+            📢 Llamar siguiente
+          </button>
+        </div>
+      </div>
+
+      {queue.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+          <p style={{ fontSize: 24 }}>🪑</p>
+          <p>Sala de espera vacía</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {queue.map((p, i) => (
+            <div key={p.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 16px', borderRadius: 8,
+              border: '1px solid #e0e0e0',
+              ...STATUS_STYLE[p.status],
+            }}>
+              <span style={{ fontSize: 20, fontWeight: 700, color: '#bbb', width: 28 }}>
+                {i + 1}
+              </span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600 }}>{p.name}</div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  {p.appointmentTime} · Dr/a. {p.dentist}
+                </div>
+              </div>
+              <span style={{
+                fontSize: 12, fontWeight: 600, padding: '3px 10px',
+                borderRadius: 12, background: 'rgba(0,0,0,0.1)',
+              }}>
+                {STATUS_LABEL[p.status]}
+              </span>
+              {p.status === 'called' && (
+                <button onClick={() => updateStatus(p.id, 'in-progress')} style={{ fontSize: 12, padding: '3px 10px' }}>
+                  En consulta
+                </button>
+              )}
+              {p.status === 'in-progress' && (
+                <button onClick={() => updateStatus(p.id, 'done')} style={{ fontSize: 12, padding: '3px 10px', background: '#e8f5e9', color: '#2e7d32' }}>
+                  Finalizar
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    def generate_clinical_timeline_tsx(self) -> str:
+        """
+        Generates ClinicalTimeline.tsx — patient history timeline.
+        Shows appointments, treatments, invoices, documents, notes sorted by date desc.
+        """
+        return """interface TimelineEvent {
+  id: string;
+  date: string;
+  type: 'appointment' | 'treatment' | 'invoice' | 'document' | 'note';
+  title: string;
+  description?: string;
+  metadata?: Record<string, string>;
+}
+
+const TYPE_CONFIG = {
+  appointment: { icon: '📅', color: '#1976d2', label: 'Cita' },
+  treatment:   { icon: '🦷', color: '#388e3c', label: 'Tratamiento' },
+  invoice:     { icon: '💰', color: '#f57c00', label: 'Factura' },
+  document:    { icon: '📎', color: '#7b1fa2', label: 'Documento' },
+  note:        { icon: '📝', color: '#0288d1', label: 'Nota' },
+};
+
+interface Props {
+  events: TimelineEvent[];
+  patientName?: string;
+}
+
+export default function ClinicalTimeline({ events, patientName }: Props) {
+  const sorted = [...events].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  if (sorted.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+        <p style={{ fontSize: 24 }}>📋</p>
+        <p>Sin historial clínico</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 680 }}>
+      {patientName && <h3 style={{ marginBottom: 16 }}>Historia clínica — {patientName}</h3>}
+      <div style={{ position: 'relative', paddingLeft: 32 }}>
+        {/* vertical line */}
+        <div style={{
+          position: 'absolute', left: 11, top: 0, bottom: 0,
+          width: 2, background: '#e0e0e0',
+        }} />
+
+        {sorted.map((ev, i) => {
+          const cfg = TYPE_CONFIG[ev.type];
+          return (
+            <div key={ev.id} style={{ position: 'relative', marginBottom: 24 }}>
+              {/* dot */}
+              <div style={{
+                position: 'absolute', left: -32, top: 2,
+                width: 24, height: 24, borderRadius: '50%',
+                background: cfg.color, color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 12, zIndex: 1,
+              }}>
+                {cfg.icon}
+              </div>
+
+              <div style={{
+                background: '#fff', borderRadius: 8,
+                border: '1px solid #e8e8e8',
+                padding: '10px 14px',
+                boxShadow: '0 1px 4px rgba(0,0,0,.06)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                      color: cfg.color, background: cfg.color + '18',
+                      borderRadius: 4, padding: '1px 6px', marginRight: 8,
+                    }}>
+                      {cfg.label}
+                    </span>
+                    <strong style={{ fontSize: 14 }}>{ev.title}</strong>
+                  </div>
+                  <span style={{ fontSize: 11, color: '#aaa', whiteSpace: 'nowrap', marginLeft: 8 }}>
+                    {new Date(ev.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+                {ev.description && (
+                  <p style={{ margin: '6px 0 0', fontSize: 13, color: '#555' }}>{ev.description}</p>
+                )}
+                {ev.metadata && Object.keys(ev.metadata).length > 0 && (
+                  <div style={{ marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    {Object.entries(ev.metadata).map(([k, v]) => (
+                      <span key={k} style={{ fontSize: 11, color: '#888' }}>
+                        <strong>{k}:</strong> {v}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+"""
+
+    def generate_insurance_form_tsx(self) -> str:
+        """
+        Generates InsuranceForm.tsx — patient insurance/convenio management form.
+        Fields: insuranceCompany, policyNumber, coverageType, validUntil, coveragePercent, notes.
+        """
+        return """import { useState } from 'react';
+
+interface InsuranceData {
+  insuranceCompany: string;
+  policyNumber: string;
+  coverageType: 'FULL' | 'PARTIAL' | 'DENTAL_ONLY' | 'NONE';
+  coveragePercent: number;
+  validUntil: string;
+  notes: string;
+}
+
+const COVERAGE_TYPES = [
+  { value: 'FULL', label: 'Cobertura completa' },
+  { value: 'PARTIAL', label: 'Cobertura parcial' },
+  { value: 'DENTAL_ONLY', label: 'Solo dental' },
+  { value: 'NONE', label: 'Sin cobertura' },
+];
+
+interface Props {
+  patientId: string;
+  initial?: InsuranceData;
+  onSave?: (data: InsuranceData) => void;
+}
+
+export default function InsuranceForm({ patientId, initial, onSave }: Props) {
+  const [form, setForm] = useState<InsuranceData>(initial ?? {
+    insuranceCompany: '',
+    policyNumber: '',
+    coverageType: 'NONE',
+    coveragePercent: 0,
+    validUntil: '',
+    notes: '',
+  });
+  const [saved, setSaved] = useState(false);
+
+  const set = (k: keyof InsuranceData, v: string | number) =>
+    setForm(prev => ({ ...prev, [k]: v }));
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave?.(form);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: 16 }}>
+      <h4 style={{ margin: '0 0 16px' }}>Seguro / Convenio</h4>
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div>
+          <label style={{ fontSize: 12, color: '#555', display: 'block', marginBottom: 4 }}>Aseguradora</label>
+          <input value={form.insuranceCompany} onChange={e => set('insuranceCompany', e.target.value)}
+            placeholder="Ej: Adeslas, Sanitas..." style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: '#555', display: 'block', marginBottom: 4 }}>Nº de póliza</label>
+          <input value={form.policyNumber} onChange={e => set('policyNumber', e.target.value)}
+            placeholder="Número de póliza" style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: '#555', display: 'block', marginBottom: 4 }}>Tipo de cobertura</label>
+          <select value={form.coverageType} onChange={e => set('coverageType', e.target.value)}
+            style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4 }}>
+            {COVERAGE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: '#555', display: 'block', marginBottom: 4 }}>Cobertura (%)</label>
+          <input type="number" min={0} max={100} value={form.coveragePercent}
+            onChange={e => set('coveragePercent', Number(e.target.value))}
+            style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: '#555', display: 'block', marginBottom: 4 }}>Válido hasta</label>
+          <input type="date" value={form.validUntil} onChange={e => set('validUntil', e.target.value)}
+            style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: '#555', display: 'block', marginBottom: 4 }}>Notas</label>
+          <input value={form.notes} onChange={e => set('notes', e.target.value)}
+            placeholder="Observaciones..." style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4 }} />
+        </div>
+        <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          {saved && <span style={{ color: '#2e7d32', fontSize: 13, alignSelf: 'center' }}>✓ Guardado</span>}
+          <button type="submit" style={{ padding: '8px 20px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+            Guardar seguro
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+"""
+
     def generate_notification_bell(self) -> str:
         """
         Generates NotificationBell.tsx — bell icon with unread badge and dropdown panel.

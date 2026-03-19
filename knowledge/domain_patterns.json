@@ -19,7 +19,9 @@
     "Child",
     "Parent",
     "InvoiceStatus",
-    "TreatmentType"
+    "TreatmentType",
+    "AppointmentStatus",
+    "BillingStatus"
   ],
   "aggregates": [
     "Order",

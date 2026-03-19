@@ -76,6 +76,21 @@ def _label(name: str) -> str:
 class TemplateReactGenerator:
 
     # ------------------------------------------------------------------ #
+    # Shared TypeScript types                                              #
+    # ------------------------------------------------------------------ #
+
+    def generate_page_response_type(self) -> str:
+        return """export interface PageResponse<T> {
+  content: T[];
+  page: number;
+  size: number;
+  total: number;
+  totalPages: number;
+  last: boolean;
+}
+"""
+
+    # ------------------------------------------------------------------ #
     # TypeScript model interface                                           #
     # ------------------------------------------------------------------ #
 
@@ -99,13 +114,19 @@ class TemplateReactGenerator:
     def generate_api_service(self, entity: str, base_url_var: str = "API_BASE") -> str:
         lower = _camel(entity)
         return f"""import type {{ {entity} }} from '../types/{entity}';
+import type {{ PageResponse }} from '../types/PageResponse';
 import {{ apiFetch }} from './apiFetch';
 
 const {base_url_var} = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 const ENDPOINT = `${{{base_url_var}}}/{lower}s`;
 
-export async function getAll{entity}s(): Promise<{entity}[]> {{
-  const res = await apiFetch(ENDPOINT);
+export async function getAll{entity}s(
+  page = 0,
+  size = 20,
+  search = ''
+): Promise<PageResponse<{entity}>> {{
+  const params = new URLSearchParams({{ page: String(page), size: String(size), search }});
+  const res = await apiFetch(`${{ENDPOINT}}?${{params}}`);
   if (!res.ok) throw new Error('Failed to fetch {lower}s');
   return res.json();
 }}
@@ -153,11 +174,12 @@ export async function delete{entity}(id: string): Promise<void> {{
             and not str(f.get("type", "")).startswith("List")
         ][:5]
 
-        headers = "".join(f"<th>{_label(c['name'])}</th>" for c in cols)
-        cells = "".join(f"<td>{{String({lower}.{c['name']})}}</td>" for c in cols)
+        headers = "".join(f"<th style={{{{thStyle}}}}>{ _label(c['name'])}</th>" for c in cols)
+        cells = "".join(f"<td style={{{{tdStyle}}}}>{{{lower}.{c['name']} ?? '—'}}</td>" for c in cols)
 
-        return f"""import {{ useEffect, useState }} from 'react';
+        return f"""import {{ useEffect, useState, useCallback }} from 'react';
 import type {{ {entity} }} from '../../types/{entity}';
+import type {{ PageResponse }} from '../../types/PageResponse';
 import {{ getAll{entity}s, delete{entity} }} from '../../api/{lower}Api';
 
 interface Props {{
@@ -166,51 +188,93 @@ interface Props {{
   refresh: number;
 }}
 
+const thStyle: React.CSSProperties = {{
+  textAlign: 'left', padding: '8px 12px', borderBottom: '2px solid #e0e0e0',
+  background: '#fafafa', fontWeight: 600,
+}};
+const tdStyle: React.CSSProperties = {{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }};
+
 export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
-  const [{lower}s, set{entity}s] = useState<{entity}[]>([]);
+  const [page, setPage] = useState<PageResponse<{entity}> | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {{
+  const load = useCallback((p: number, s: string) => {{
     setLoading(true);
-    getAll{entity}s()
-      .then(set{entity}s)
+    getAll{entity}s(p, 20, s)
+      .then(setPage)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }}, [refresh]);
+  }}, []);
+
+  useEffect(() => {{ load(currentPage, search); }}, [refresh, currentPage, search, load]);
 
   const handleDelete = async (id: string) => {{
-    if (!window.confirm('Delete this {lower}?')) return;
+    if (!window.confirm('¿Eliminar este {lower}?')) return;
     await delete{entity}(id);
-    set{entity}s(prev => prev.filter(x => x.id !== id));
+    load(currentPage, search);
   }};
 
-  if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{{{ color: 'red' }}}}>{{error}}</p>;
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {{
+    setSearch(e.target.value);
+    setCurrentPage(0);
+  }};
 
   return (
     <div>
-      <div style={{{{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}}}>
-        <h2>{entity}s</h2>
-        <button onClick={{onNew}}>+ New {entity}</button>
+      <div style={{{{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}}}>
+        <h2 style={{{{ margin: 0 }}}}>{{page?.total ?? ''}} {entity}s</h2>
+        <div style={{{{ display: 'flex', gap: 8 }}}}>
+          <input
+            placeholder="Buscar…"
+            value={{search}}
+            onChange={{handleSearch}}
+            style={{{{ padding: '6px 12px', border: '1px solid #ddd', borderRadius: 4, width: 220 }}}}
+          />
+          <button
+            onClick={{onNew}}
+            style={{{{ padding: '6px 16px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}}}
+          >
+            + Nuevo
+          </button>
+        </div>
       </div>
+
+      {{error && <p style={{{{ color: 'red' }}}}>{{error}}</p>}}
+      {{loading && <p style={{{{ color: '#999' }}}}>Cargando…</p>}}
+
       <table style={{{{ width: '100%', borderCollapse: 'collapse' }}}}>
         <thead>
-          <tr>{headers}<th>Actions</th></tr>
+          <tr>{headers}<th style={{{{thStyle}}}}>Acciones</th></tr>
         </thead>
         <tbody>
-          {{{lower}s.map({lower} => (
-            <tr key={{{lower}.id}} style={{{{ borderBottom: '1px solid #eee' }}}}>
+          {{(page?.content ?? []).map({lower} => (
+            <tr key={{{lower}.id}} style={{{{ background: '#fff' }}}}>
               {cells}
-              <td>
-                <button onClick={{() => onEdit({lower})}}>Edit</button>
-                {{' '}}
-                <button onClick={{() => handleDelete({lower}.id)}}>Delete</button>
+              <td style={{{{tdStyle}}}}>
+                <button
+                  onClick={{() => onEdit({lower})}}
+                  style={{{{ marginRight: 6, padding: '3px 10px', cursor: 'pointer' }}}}
+                >Editar</button>
+                <button
+                  onClick={{() => handleDelete({lower}.id)}}
+                  style={{{{ padding: '3px 10px', cursor: 'pointer', color: '#c62828' }}}}
+                >Eliminar</button>
               </td>
             </tr>
           ))}}
         </tbody>
       </table>
+
+      {{page && page.totalPages > 1 && (
+        <div style={{{{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}}}>
+          <button disabled={{currentPage === 0}} onClick={{() => setCurrentPage(p => p - 1)}}>‹ Anterior</button>
+          <span>Página {{currentPage + 1}} de {{page.totalPages}}</span>
+          <button disabled={{page.last}} onClick={{() => setCurrentPage(p => p + 1)}}>Siguiente ›</button>
+        </div>
+      )}}
     </div>
   );
 }}

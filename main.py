@@ -1132,6 +1132,13 @@ public class SecurityConfig {{
 }}
 """
 
+        # ---- Shared domain/API types ----
+        tg = self.template_generator
+        shared_pkg = f"{pkg}.shared"
+        page_result_java = tg.generate_page_result(shared_pkg)
+        page_response_java = tg.generate_page_response(shared_pkg)
+        exception_handler_java = tg.generate_global_exception_handler(f"{pkg}.config")
+
         # ---- Write all files ----
         pkg_path = pkg.replace(".", "/")
         files = {
@@ -1140,6 +1147,9 @@ public class SecurityConfig {{
             "backend/src/main/resources/application.properties": app_props,
             ".env.example": env_example,
             f"backend/src/main/java/{pkg_path}/config/SecurityConfig.java": security_config,
+            f"backend/src/main/java/{pkg_path}/shared/PageResult.java": page_result_java,
+            f"backend/src/main/java/{pkg_path}/shared/PageResponse.java": page_response_java,
+            f"backend/src/main/java/{pkg_path}/config/GlobalExceptionHandler.java": exception_handler_java,
         }
         if v1_sql:
             files["backend/src/main/resources/db/migration/V1__create_tables.sql"] = v1_sql
@@ -1237,11 +1247,12 @@ public class SecurityConfig {{
             except Exception as e:
                 f.log(f"⚠️ Frontend file skipped ({path}): {e}")
 
-        # ---- Auth files (Keycloak integration) ----
+        # ---- Auth + shared files ----
         auth_files = {
             "frontend/src/auth/keycloak.ts": gen.generate_keycloak_ts(f.project_slug),
             "frontend/src/auth/AuthProvider.tsx": gen.generate_auth_provider_tsx(),
             "frontend/src/api/apiFetch.ts": gen.generate_api_fetch_ts(),
+            "frontend/src/types/PageResponse.ts": gen.generate_page_response_type(),
         }
         for rel, content in auth_files.items():
             try:
@@ -2575,6 +2586,9 @@ class SoftwareFactory:
             "        <version>3.11.0</version>\n"
             "        <configuration>\n"
             "          <release>17</release>\n"
+            "          <compilerArgs>\n"
+            "            <arg>-parameters</arg>\n"
+            "          </compilerArgs>\n"
             "        </configuration>\n"
             "      </plugin>\n"
             "\n"

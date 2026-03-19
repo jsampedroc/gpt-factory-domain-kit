@@ -115,18 +115,120 @@ class TemplateJavaGenerator:
 
         return "".join(lines)
 
+    def generate_page_result(self, package_name: str) -> str:
+        """Domain-layer PageResult<T> — no Spring dependency."""
+        return f"""package {package_name};
+
+import java.util.List;
+
+public record PageResult<T>(
+        List<T> content,
+        int page,
+        int size,
+        long total) {{
+
+    public int totalPages() {{
+        return size == 0 ? 0 : (int) Math.ceil((double) total / size);
+    }}
+
+    public boolean isLast() {{
+        return page >= totalPages() - 1;
+    }}
+}}
+"""
+
+    def generate_page_response(self, package_name: str) -> str:
+        """HTTP-layer PageResponse<T> record returned by controllers."""
+        return f"""package {package_name};
+
+import java.util.List;
+
+public record PageResponse<T>(
+        List<T> content,
+        int page,
+        int size,
+        long total,
+        int totalPages,
+        boolean last) {{}}
+"""
+
+    def generate_global_exception_handler(self, package_name: str) -> str:
+        """@ControllerAdvice that returns structured JSON errors."""
+        return f"""package {package_name};
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {{
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex) {{
+        return error(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }}
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, Object>> handleConflict(IllegalStateException ex) {{
+        return error(HttpStatus.CONFLICT, ex.getMessage());
+    }}
+
+    @ExceptionHandler(jakarta.persistence.EntityNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(jakarta.persistence.EntityNotFoundException ex) {{
+        return error(HttpStatus.NOT_FOUND, ex.getMessage());
+    }}
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {{
+        List<String> errors = ex.getBindingResult().getFieldErrors().stream()
+                .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
+                .toList();
+        Map<String, Object> body = buildBody(HttpStatus.BAD_REQUEST, "Validation failed");
+        body.put("errors", errors);
+        return ResponseEntity.badRequest().body(body);
+    }}
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {{
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
+    }}
+
+    private ResponseEntity<Map<String, Object>> error(HttpStatus status, String message) {{
+        return ResponseEntity.status(status).body(buildBody(status, message));
+    }}
+
+    private Map<String, Object> buildBody(HttpStatus status, String message) {{
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", status.value());
+        body.put("error", status.getReasonPhrase());
+        body.put("message", message);
+        return body;
+    }}
+}}
+"""
+
     def generate_repository(self, package_name, entity, base_package=None, module=None):
 
         if module:
             model_import = f"{base_package}.{module}.domain.model.{entity}"
+            page_import = f"{base_package}.shared.PageResult"
         else:
             model_import = f"{base_package}.domain.model.{entity}"
+            page_import = f"{base_package}.shared.PageResult"
 
         return f"""
 package {package_name};
 
 import {model_import};
-import java.util.List;
+import {page_import};
 import java.util.Optional;
 import java.util.UUID;
 
@@ -136,7 +238,7 @@ public interface {entity}Repository {{
 
     Optional<{entity}> findById(UUID id);
 
-    List<{entity}> findAll();
+    PageResult<{entity}> findAll(int page, int size, String search);
 
 }}
 
@@ -153,10 +255,13 @@ public interface {entity}Repository {{
 package {package_name};
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import {jpa_entity_import};
 import java.util.UUID;
 
-public interface SpringData{entity}Repository extends JpaRepository<{entity}JpaEntity, UUID> {{
+public interface SpringData{entity}Repository
+        extends JpaRepository<{entity}JpaEntity, UUID>,
+                JpaSpecificationExecutor<{entity}JpaEntity> {{
 }}
 """
 
@@ -269,6 +374,34 @@ public class {class_name} {{
         needs_bigdecimal = any(self._jpa_type(f.get("type", "")) == "BigDecimal" for f in non_id_fields)
         bigdecimal_import = "import java.math.BigDecimal;\n" if needs_bigdecimal else ""
 
+        # Detect String fields usable in search predicate
+        str_fields = [
+            f["name"] for f in non_id_fields
+            if self._jpa_type(f.get("type", "String")) == "String"
+            and not f["name"].lower().endswith("id")
+        ][:4]  # cap to 4 most relevant
+
+        if str_fields:
+            predicate_lines = " ".join(
+                f'cb.like(cb.lower(root.get("{fn}")), like),'
+                for fn in str_fields
+            ).rstrip(",")
+            search_body = (
+                f"        if (search != null && !search.isBlank()) {{\n"
+                f"            String like = \"%\" + search.toLowerCase() + \"%\";\n"
+                f"            spec = spec.and((root, q, cb) -> cb.or(\n"
+                f"                {predicate_lines}\n"
+                f"            ));\n"
+                f"        }}"
+            )
+        else:
+            search_body = "        // no searchable string fields"
+
+        if module:
+            page_import = f"{base_package}.shared.PageResult"
+        else:
+            page_import = f"{base_package}.shared.PageResult"
+
         return f"""package {package_name};
 
 import {domain_model_import};
@@ -276,6 +409,9 @@ import {repo_import};
 import {id_import};
 import {jpa_entity_import};
 import {spring_repo_import};
+import {page_import};
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
@@ -304,8 +440,12 @@ public class {class_name} implements {entity}Repository {{
     }}
 
     @Override
-    public List<{entity}> findAll() {{
-        return springRepository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
+    public PageResult<{entity}> findAll(int page, int size, String search) {{
+        Specification<{entity}JpaEntity> spec = Specification.where(null);
+{search_body}
+        var p = springRepository.findAll(spec, PageRequest.of(page, size));
+        List<{entity}> content = p.getContent().stream().map(this::toDomain).collect(Collectors.toList());
+        return new PageResult<>(content, page, size, p.getTotalElements());
     }}
 
     private {entity}JpaEntity toJpaEntity({entity} domain) {{
@@ -345,7 +485,7 @@ public class {class_name} implements {entity}Repository {{
         id_field = id_input["name"] if id_input else None
 
         if is_list:
-            return "        return repository.findAll();"
+            return f"        return repository.findAll({dto_var}.page(), {dto_var}.size(), {dto_var}.search());"
 
         if is_query:
             if id_field:
@@ -406,8 +546,11 @@ public class {class_name} implements {entity}Repository {{
 
         # Determine return type
         returns = uc_returns or entity
-        needs_optional = uc_type == "query" and not returns.startswith("List")
-        if needs_optional:
+        is_list_all = use_case_name.startswith("ListAll")
+        needs_optional = uc_type == "query" and not returns.startswith("List") and not is_list_all
+        if is_list_all:
+            return_type = f"PageResult<{entity}>"
+        elif needs_optional:
             return_type = f"Optional<{returns}>"
         elif returns.startswith("List"):
             return_type = f"List<{entity}>"
@@ -417,8 +560,10 @@ public class {class_name} implements {entity}Repository {{
         # Id type import
         if module:
             id_import = f"{base_package}.{module}.domain.valueobject.{entity}Id"
+            page_result_import = f"{base_package}.shared.PageResult"
         else:
             id_import = f"{base_package}.domain.valueobject.{entity}Id"
+            page_result_import = f"{base_package}.shared.PageResult"
 
         # Deterministic execute() body
         body = self._generate_execute_body(
@@ -430,6 +575,7 @@ public class {class_name} implements {entity}Repository {{
 import {model_import};
 import {repo_import};
 import {id_import};
+import {page_result_import};
 import java.util.UUID;
 import java.util.Optional;
 import java.util.List;
@@ -476,8 +622,21 @@ public record {use_case_name}Command() {{}}
 """
 
     def generate_usecase_query(self, package_name, use_case_name, inputs):
-        """Generates a Query record (input DTO for a query use case)."""
+        """Generates a Query record. ListAll* queries automatically get page/size/search fields."""
+        is_list_all = use_case_name.startswith("ListAll")
         inputs = self._dedup_inputs(inputs)
+
+        if is_list_all:
+            # Always inject pagination params for list queries
+            pagination = [
+                {"name": "page", "type": "int"},
+                {"name": "size", "type": "int"},
+                {"name": "search", "type": "String"},
+            ]
+            # Merge: keep any extra inputs from spec, deduplicate
+            extra = [i for i in inputs if i.get("name") not in ("page", "size", "search")]
+            inputs = pagination + extra
+
         imports = self._imports_for_inputs(inputs)
         imports_str = ("".join(f"import {i};\n" for i in sorted(imports)) + "\n") if imports else ""
         fields_str = ",\n    ".join(
@@ -635,6 +794,8 @@ public record {entity}Response(
         uc_pkg = f"{mod_prefix}.application.usecase"
         dto_pkg = f"{mod_prefix}.application.dto"
         model_import = f"{mod_prefix}.domain.model.{entity}"
+        page_result_import = f"{base_package}.shared.PageResult"
+        page_response_import = f"{base_package}.shared.PageResponse"
 
         # Build toResponse() field mapping
         def _response_type(java_type: str) -> str:
@@ -688,6 +849,8 @@ public record {entity}Response(
 
 import {model_import};
 import {dto_pkg}.{entity}Response;
+import {page_result_import};
+import {page_response_import};
 import {uc_pkg}.{list_uc};
 import {uc_pkg}.{list_q};
 import {uc_pkg}.{get_uc};
@@ -729,13 +892,19 @@ public class {class_name} {{
     }}
 
     @GetMapping
-    public List<{entity}Response> getAll() {{
-        return listAll.execute(new {list_q}())
-                .stream().map(this::toResponse).collect(Collectors.toList());
+    public PageResponse<{entity}Response> getAll(
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "")   String search) {{
+        PageResult<{entity}> result = listAll.execute(new {list_q}(page, size, search));
+        List<{entity}Response> content = result.content().stream()
+                .map(this::toResponse).collect(Collectors.toList());
+        return new PageResponse<>(content, result.page(), result.size(),
+                result.total(), result.totalPages(), result.isLast());
     }}
 
     @GetMapping("/{{id}}")
-    public ResponseEntity<{entity}Response> getOne(@PathVariable UUID id) {{
+    public ResponseEntity<{entity}Response> getOne(@PathVariable("id") UUID id) {{
         return getById.execute(new {get_q}(id))
                 .map(this::toResponse)
                 .map(ResponseEntity::ok)
@@ -748,13 +917,13 @@ public class {class_name} {{
     }}
 
     @PutMapping("/{{id}}")
-    public ResponseEntity<{entity}Response> updateOne(@PathVariable UUID id,
+    public ResponseEntity<{entity}Response> updateOne(@PathVariable("id") UUID id,
                                                        @RequestBody {upd_cmd} cmd) {{
         return ResponseEntity.ok(toResponse(update.execute(cmd)));
     }}
 
     @DeleteMapping("/{{id}}")
-    public ResponseEntity<Void> deleteOne(@PathVariable UUID id) {{
+    public ResponseEntity<Void> deleteOne(@PathVariable("id") UUID id) {{
         deactivate.execute(new {deact_cmd}(id));
         return ResponseEntity.noContent().build();
     }}

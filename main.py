@@ -1272,6 +1272,36 @@ public class SecurityConfig {{
         except Exception as e:
             f.log(f"⚠️ Consent generation error: {e}")
 
+        # ---- Anamnesis (Round 30) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/AnamnesisController.java"] = \
+                tg.generate_anamnesis_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Anamnesis generation error: {e}")
+
+        # ---- Communications (Round 31) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/CommunicationController.java"] = \
+                tg.generate_communication_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Communication generation error: {e}")
+
+        # ---- Clinical Photos (Round 32) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/ClinicalPhotosController.java"] = \
+                tg.generate_clinical_photos_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Clinical Photos generation error: {e}")
+
+        # ---- Clinic Locations + Online Booking (Round 33) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/ClinicLocationController.java"] = \
+                tg.generate_clinic_location_controller(pkg)
+            files[f"backend/src/main/java/{pkg_path}/shared/OnlineBookingController.java"] = \
+                tg.generate_online_booking_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Locations/Booking generation error: {e}")
+
         # ---- Stock Management (Round 28) ----
         try:
             files[f"backend/src/main/java/{pkg_path}/shared/StockController.java"] = \
@@ -1428,6 +1458,15 @@ public class SecurityConfig {{
             "frontend/src/pages/PaymentPage.tsx": gen.generate_payment_page_tsx(),
             # Round 27: Consents
             "frontend/src/pages/ConsentPage.tsx": gen.generate_consent_page_tsx(),
+            # Round 30: Anamnesis
+            "frontend/src/pages/AnamnesisPage.tsx": gen.generate_anamnesis_page_tsx(),
+            # Round 31: Communications
+            "frontend/src/pages/CommunicationPage.tsx": gen.generate_communication_page_tsx(),
+            # Round 32: Clinical Photos
+            "frontend/src/pages/ClinicalPhotosPage.tsx": gen.generate_clinical_photos_page_tsx(),
+            # Round 33: Locations + Online Booking
+            "frontend/src/pages/LocationsPage.tsx": gen.generate_locations_page_tsx(),
+            "frontend/src/pages/OnlineBookingPage.tsx": gen.generate_online_booking_page_tsx(),
         }
         for rel, content in auth_files.items():
             try:

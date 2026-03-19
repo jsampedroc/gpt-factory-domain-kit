@@ -4219,3 +4219,1493 @@ export default function ConsentPage() {
   );
 }
 """
+
+    def generate_anamnesis_page_tsx(self) -> str:
+        """
+        Generates AnamnesisPage.tsx — patient medical history / health questionnaire form.
+        Sections: medical conditions, allergies, medication, dental history, habits,
+        emergency contact, notes. Risk banner for high-risk patients.
+        Round 30.
+        """
+        return """import { useState } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface AnamnesisResponse {
+  id: string;
+  patientId: string;
+  patientName: string;
+  diabetes: boolean;
+  hypertension: boolean;
+  heartDisease: boolean;
+  asthma: boolean;
+  epilepsy: boolean;
+  hivPositive: boolean;
+  hepatitis: boolean;
+  osteoporosis: boolean;
+  anticoagulants: boolean;
+  pregnant: boolean;
+  allergyPenicillin: boolean;
+  allergyLatex: boolean;
+  allergyAnesthesia: boolean;
+  otherAllergies: string;
+  currentMedication: string;
+  previousDentalProblems: string;
+  lastDentalVisit: string;
+  smoker: boolean;
+  alcoholConsumer: boolean;
+  emergencyContact: string;
+  emergencyPhone: string;
+  additionalNotes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const EMPTY_FORM = {
+  patientId: '',
+  diabetes: false, hypertension: false, heartDisease: false, asthma: false,
+  epilepsy: false, hivPositive: false, hepatitis: false, osteoporosis: false,
+  anticoagulants: false, pregnant: false,
+  allergyPenicillin: false, allergyLatex: false, allergyAnesthesia: false,
+  otherAllergies: '',
+  currentMedication: '',
+  previousDentalProblems: '', lastDentalVisit: '',
+  smoker: false, alcoholConsumer: false,
+  emergencyContact: '', emergencyPhone: '',
+  additionalNotes: '',
+};
+
+const sectionStyle: React.CSSProperties = {
+  background: '#f5f5f5', padding: '8px 14px', fontWeight: 700,
+  fontSize: 14, marginBottom: 8, borderRadius: 4,
+};
+
+const gridStyle: React.CSSProperties = {
+  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 24px', marginBottom: 12,
+};
+
+export default function AnamnesisPage() {
+  const [searchId, setSearchId] = useState('');
+  const [anamnesis, setAnamnesis] = useState<AnamnesisResponse | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const isRisk = form.diabetes || form.heartDisease || form.anticoagulants || form.hivPositive
+    || (anamnesis && (anamnesis.diabetes || anamnesis.heartDisease || anamnesis.anticoagulants || anamnesis.hivPositive));
+
+  const loadAnamnesis = async () => {
+    if (!searchId.trim()) return;
+    setLoading(true); setError(null); setNotFound(false); setAnamnesis(null); setShowForm(false);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/anamnesis/patient/${searchId.trim()}`);
+      if (res.status === 404) {
+        setNotFound(true);
+      } else if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      } else {
+        const data: AnamnesisResponse = await res.json();
+        setAnamnesis(data);
+        setForm({
+          patientId: data.patientId,
+          diabetes: data.diabetes, hypertension: data.hypertension,
+          heartDisease: data.heartDisease, asthma: data.asthma,
+          epilepsy: data.epilepsy, hivPositive: data.hivPositive,
+          hepatitis: data.hepatitis, osteoporosis: data.osteoporosis,
+          anticoagulants: data.anticoagulants, pregnant: data.pregnant,
+          allergyPenicillin: data.allergyPenicillin, allergyLatex: data.allergyLatex,
+          allergyAnesthesia: data.allergyAnesthesia, otherAllergies: data.otherAllergies,
+          currentMedication: data.currentMedication,
+          previousDentalProblems: data.previousDentalProblems, lastDentalVisit: data.lastDentalVisit,
+          smoker: data.smoker, alcoholConsumer: data.alcoholConsumer,
+          emergencyContact: data.emergencyContact, emergencyPhone: data.emergencyPhone,
+          additionalNotes: data.additionalNotes,
+        });
+        setShowForm(true);
+      }
+    } catch (e: any) { setError('Error al cargar anamnesis: ' + e.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleNewAnamnesis = () => {
+    setForm({ ...EMPTY_FORM, patientId: searchId.trim() });
+    setNotFound(false);
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.patientId.trim()) { setError('Introduce el ID del paciente'); return; }
+    setSaving(true); setError(null); setSuccess(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/anamnesis`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: AnamnesisResponse = await res.json();
+      setAnamnesis(data);
+      setSuccess('Anamnesis guardada correctamente.');
+    } catch (e: any) { setError('Error al guardar anamnesis: ' + e.message); }
+    finally { setSaving(false); }
+  };
+
+  const setCheck = (field: string, value: boolean) =>
+    setForm(f => ({ ...f, [field]: value }));
+
+  const setStr = (field: string, value: string) =>
+    setForm(f => ({ ...f, [field]: value }));
+
+  const cb = (label: string, field: string) => (
+    <label key={field} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, cursor: 'pointer' }}>
+      <input type="checkbox" checked={(form as any)[field]}
+        onChange={e => setCheck(field, e.target.checked)} />
+      {label}
+    </label>
+  );
+
+  return (
+    <div style={{ maxWidth: 820, margin: '0 auto' }}>
+      <h2 style={{ color: '#1976d2' }}>Anamnesis — Historial Médico del Paciente</h2>
+
+      {/* Search box */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input
+          value={searchId}
+          onChange={e => setSearchId(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && loadAnamnesis()}
+          placeholder="UUID del paciente"
+          style={{ flex: 1, padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4 }}
+        />
+        <button onClick={loadAnamnesis} disabled={loading}
+          style={{ padding: '8px 18px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}>
+          {loading ? 'Buscando...' : 'Buscar'}
+        </button>
+      </div>
+
+      {error && <div style={{ color: '#c62828', marginBottom: 12, padding: '8px 12px', background: '#ffebee', borderRadius: 4 }}>{error}</div>}
+      {success && <div style={{ color: '#2e7d32', marginBottom: 12, padding: '8px 12px', background: '#e8f5e9', borderRadius: 4 }}>{success}</div>}
+
+      {/* Not found state */}
+      {notFound && (
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ color: '#888' }}>Sin datos — no existe anamnesis para este paciente.</p>
+          <button onClick={handleNewAnamnesis}
+            style={{ padding: '8px 18px', background: '#388e3c', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}>
+            Crear nuevo
+          </button>
+        </div>
+      )}
+
+      {/* Risk banner */}
+      {isRisk && showForm && (
+        <div style={{ background: '#fff9c4', border: '1px solid #f9a825', borderRadius: 4, padding: '10px 14px', marginBottom: 16, fontSize: 14 }}>
+          ⚠️ Paciente de riesgo — revisar protocolo
+        </div>
+      )}
+
+      {/* Form */}
+      {showForm && (
+        <div>
+          {/* patientId field if new */}
+          {notFound && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>UUID del paciente</label>
+              <input value={form.patientId} onChange={e => setStr('patientId', e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4 }} />
+            </div>
+          )}
+
+          {/* 1. Antecedentes médicos */}
+          <div style={sectionStyle}>Antecedentes médicos</div>
+          <div style={gridStyle}>
+            {cb('Diabetes', 'diabetes')}
+            {cb('Hipertensión', 'hypertension')}
+            {cb('Cardiopatía', 'heartDisease')}
+            {cb('Asma', 'asthma')}
+            {cb('Epilepsia', 'epilepsy')}
+            {cb('VIH+', 'hivPositive')}
+            {cb('Hepatitis', 'hepatitis')}
+            {cb('Osteoporosis', 'osteoporosis')}
+            {cb('Anticoagulantes', 'anticoagulants')}
+            {cb('Embarazada', 'pregnant')}
+          </div>
+
+          {/* 2. Alergias */}
+          <div style={sectionStyle}>Alergias</div>
+          <div style={gridStyle}>
+            {cb('Penicilina', 'allergyPenicillin')}
+            {cb('Látex', 'allergyLatex')}
+            {cb('Anestesia', 'allergyAnesthesia')}
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>Otras alergias</label>
+            <input value={form.otherAllergies} onChange={e => setStr('otherAllergies', e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4 }} />
+          </div>
+
+          {/* 3. Medicación actual */}
+          <div style={sectionStyle}>Medicación actual</div>
+          <textarea value={form.currentMedication} onChange={e => setStr('currentMedication', e.target.value)}
+            rows={3} placeholder="Lista de medicamentos actuales..."
+            style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4, marginBottom: 12, resize: 'vertical', boxSizing: 'border-box' }} />
+
+          {/* 4. Historial dental */}
+          <div style={sectionStyle}>Historial dental</div>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>Problemas dentales anteriores</label>
+            <textarea value={form.previousDentalProblems} onChange={e => setStr('previousDentalProblems', e.target.value)}
+              rows={3} placeholder="Describe tratamientos o problemas previos..."
+              style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4, resize: 'vertical', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>Última visita dental</label>
+            <input value={form.lastDentalVisit} onChange={e => setStr('lastDentalVisit', e.target.value)}
+              placeholder="ej. 2024-03-15"
+              style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4 }} />
+          </div>
+
+          {/* 5. Hábitos */}
+          <div style={sectionStyle}>Hábitos</div>
+          <div style={{ ...gridStyle, marginBottom: 12 }}>
+            {cb('Fumador', 'smoker')}
+            {cb('Consumo de alcohol', 'alcoholConsumer')}
+          </div>
+
+          {/* 6. Contacto de emergencia */}
+          <div style={sectionStyle}>Contacto de emergencia</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px', marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>Nombre</label>
+              <input value={form.emergencyContact} onChange={e => setStr('emergencyContact', e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>Teléfono</label>
+              <input value={form.emergencyPhone} onChange={e => setStr('emergencyPhone', e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box' }} />
+            </div>
+          </div>
+
+          {/* 7. Notas adicionales */}
+          <div style={sectionStyle}>Notas adicionales</div>
+          <textarea value={form.additionalNotes} onChange={e => setStr('additionalNotes', e.target.value)}
+            rows={3} placeholder="Observaciones clínicas adicionales..."
+            style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: '1px solid #ccc', borderRadius: 4, marginBottom: 16, resize: 'vertical', boxSizing: 'border-box' }} />
+
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding: '10px 28px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 15, fontWeight: 600 }}>
+            {saving ? 'Guardando...' : 'Guardar'}
+          </button>
+
+          {anamnesis && (
+            <p style={{ fontSize: 12, color: '#888', marginTop: 8 }}>
+              Última actualización: {anamnesis.updatedAt}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    # ------------------------------------------------------------------ #
+    #  Round 31 – Communications / Patient Messaging                       #
+    # ------------------------------------------------------------------ #
+    def generate_communication_page_tsx(self) -> str:
+        return r"""import { useState, useEffect } from 'react';
+import { apiFetch } from '../api/apiFetch';
+import { API_BASE } from '../config/api';
+
+interface MessageTemplate {
+  code: string;
+  name: string;
+  channel: string;
+  subject: string;
+  body: string;
+}
+
+interface MessageResponse {
+  id: string;
+  patientId: string;
+  patientName: string;
+  channel: string;
+  subject: string;
+  body: string;
+  status: string;
+  sentAt: string | null;
+  scheduledAt: string | null;
+}
+
+const CHANNEL_ICON: Record<string, string> = {
+  EMAIL: '📧',
+  SMS: '📱',
+  WHATSAPP: '💬',
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  SENT: '#2e7d32',
+  FAILED: '#c62828',
+  SCHEDULED: '#1565c0',
+  PENDING: '#e65100',
+};
+
+function ChannelBadge({ channel }: { channel: string }) {
+  return (
+    <span style={{
+      background: channel === 'EMAIL' ? '#e3f2fd' : channel === 'SMS' ? '#f3e5f5' : '#e8f5e9',
+      color: channel === 'EMAIL' ? '#1565c0' : channel === 'SMS' ? '#6a1b9a' : '#2e7d32',
+      borderRadius: 12, padding: '2px 10px', fontSize: 12, fontWeight: 600,
+    }}>
+      {CHANNEL_ICON[channel] || ''} {channel}
+    </span>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <span style={{
+      background: STATUS_COLOR[status] || '#888',
+      color: '#fff',
+      borderRadius: 12, padding: '2px 10px', fontSize: 12, fontWeight: 600,
+    }}>
+      {status}
+    </span>
+  );
+}
+
+export default function CommunicationPage() {
+  const [tab, setTab] = useState<'send' | 'history' | 'templates'>('send');
+
+  // ----- Send tab state -----
+  const [patientId, setPatientId] = useState('');
+  const [channel, setChannel] = useState<'EMAIL' | 'SMS' | 'WHATSAPP'>('EMAIL');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [schedule, setSchedule] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // ----- History tab state -----
+  const [historyPatientId, setHistoryPatientId] = useState('');
+  const [history, setHistory] = useState<MessageResponse[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // ----- Templates -----
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+
+  useEffect(() => {
+    apiFetch(`${API_BASE}/api/communications/templates`)
+      .then(res => res.json())
+      .then((data: MessageTemplate[]) => setTemplates(data))
+      .catch(() => {});
+  }, []);
+
+  function applyTemplate(tpl: MessageTemplate) {
+    setChannel(tpl.channel as 'EMAIL' | 'SMS' | 'WHATSAPP');
+    setSubject(tpl.subject);
+    setBody(tpl.body);
+    setSelectedTemplate(tpl.code);
+    setTab('send');
+  }
+
+  async function handleSend() {
+    if (!patientId || !body) return;
+    setSending(true);
+    setSendMsg(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/communications/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientId,
+          channel,
+          subject,
+          body,
+          scheduledAt: schedule && scheduledAt ? scheduledAt : null,
+        }),
+      });
+      if (res.ok) {
+        setSendMsg({ ok: true, text: 'Mensaje enviado correctamente.' });
+        setBody('');
+        setSubject('');
+        setScheduledAt('');
+        setSchedule(false);
+        setSelectedTemplate('');
+      } else {
+        setSendMsg({ ok: false, text: 'Error al enviar el mensaje.' });
+      }
+    } catch {
+      setSendMsg({ ok: false, text: 'Error de conexión.' });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleHistorySearch() {
+    if (!historyPatientId) return;
+    setHistoryLoading(true);
+    setHistory([]);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/communications/patient/${historyPatientId}`);
+      const data = await res.json();
+      setHistory(data as MessageResponse[]);
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '8px 20px',
+    cursor: 'pointer',
+    borderBottom: active ? '3px solid #1976d2' : '3px solid transparent',
+    fontWeight: active ? 700 : 400,
+    color: active ? '#1976d2' : '#555',
+    background: 'none',
+    border: 'none',
+    borderBottomWidth: 3,
+    borderBottomStyle: 'solid',
+    borderBottomColor: active ? '#1976d2' : 'transparent',
+    fontSize: 15,
+  });
+
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      <h2 style={{ color: '#1976d2', marginBottom: 16 }}>Comunicación con Pacientes</h2>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #ddd', marginBottom: 24 }}>
+        <button style={tabStyle(tab === 'send')}      onClick={() => setTab('send')}>Enviar mensaje</button>
+        <button style={tabStyle(tab === 'history')}   onClick={() => setTab('history')}>Historial</button>
+        <button style={tabStyle(tab === 'templates')} onClick={() => setTab('templates')}>Plantillas</button>
+      </div>
+
+      {/* ===== ENVIAR MENSAJE ===== */}
+      {tab === 'send' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 620 }}>
+          <label>
+            <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>UUID Paciente *</span>
+            <input
+              type="text" value={patientId}
+              onChange={e => setPatientId(e.target.value)}
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              style={{ width: '100%', padding: '7px 10px', borderRadius: 4, border: '1px solid #ccc', boxSizing: 'border-box' }}
+            />
+          </label>
+
+          {/* Channel selector */}
+          <div>
+            <span style={{ fontWeight: 600 }}>Canal *</span>
+            <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+              {(['EMAIL', 'SMS', 'WHATSAPP'] as const).map(ch => (
+                <label key={ch} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input type="radio" name="channel" value={ch} checked={channel === ch} onChange={() => setChannel(ch)} />
+                  <span>{CHANNEL_ICON[ch]} {ch}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Template selector */}
+          <label>
+            <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Plantilla (opcional)</span>
+            <select
+              value={selectedTemplate}
+              onChange={e => {
+                const tpl = templates.find(t => t.code === e.target.value);
+                if (tpl) applyTemplate(tpl);
+                else setSelectedTemplate('');
+              }}
+              style={{ width: '100%', padding: '7px 10px', borderRadius: 4, border: '1px solid #ccc' }}
+            >
+              <option value="">-- Sin plantilla --</option>
+              {templates.map(t => (
+                <option key={t.code} value={t.code}>{t.name} ({t.channel})</option>
+              ))}
+            </select>
+          </label>
+
+          {/* Subject (hidden for SMS) */}
+          {channel !== 'SMS' && (
+            <label>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Asunto</span>
+              <input
+                type="text" value={subject}
+                onChange={e => setSubject(e.target.value)}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 4, border: '1px solid #ccc', boxSizing: 'border-box' }}
+              />
+            </label>
+          )}
+
+          {/* Body */}
+          <label>
+            <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>
+              Mensaje * {channel === 'SMS' && <span style={{ color: body.length > 160 ? '#c62828' : '#888', fontSize: 12 }}>({body.length}/160)</span>}
+            </span>
+            <textarea
+              value={body} rows={5}
+              onChange={e => setBody(e.target.value)}
+              maxLength={channel === 'SMS' ? 160 : undefined}
+              style={{ width: '100%', padding: '7px 10px', borderRadius: 4, border: '1px solid #ccc', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+          </label>
+
+          {/* Schedule toggle */}
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={schedule} onChange={e => setSchedule(e.target.checked)} />
+              <span style={{ fontWeight: 600 }}>Programar envío</span>
+            </label>
+            {schedule && (
+              <input
+                type="datetime-local" value={scheduledAt}
+                onChange={e => setScheduledAt(e.target.value)}
+                style={{ marginTop: 8, padding: '7px 10px', borderRadius: 4, border: '1px solid #ccc' }}
+              />
+            )}
+          </div>
+
+          <button
+            onClick={handleSend}
+            disabled={sending || !patientId || !body}
+            style={{ padding: '10px 28px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 15, alignSelf: 'flex-start' }}
+          >
+            {sending ? 'Enviando...' : schedule ? 'Programar' : 'Enviar mensaje'}
+          </button>
+
+          {sendMsg && (
+            <div style={{ padding: '10px 16px', borderRadius: 4, background: sendMsg.ok ? '#e8f5e9' : '#ffebee', color: sendMsg.ok ? '#2e7d32' : '#c62828', fontWeight: 600 }}>
+              {sendMsg.text}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== HISTORIAL ===== */}
+      {tab === 'history' && (
+        <div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20, maxWidth: 520 }}>
+            <input
+              type="text" value={historyPatientId}
+              onChange={e => setHistoryPatientId(e.target.value)}
+              placeholder="UUID del paciente"
+              style={{ flex: 1, padding: '7px 10px', borderRadius: 4, border: '1px solid #ccc' }}
+            />
+            <button
+              onClick={handleHistorySearch}
+              disabled={historyLoading || !historyPatientId}
+              style={{ padding: '7px 20px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+            >
+              Buscar
+            </button>
+          </div>
+
+          {historyLoading && <p>Cargando...</p>}
+
+          {!historyLoading && history.length === 0 && historyPatientId && (
+            <p style={{ color: '#888' }}>No se encontraron mensajes para este paciente.</p>
+          )}
+
+          {history.length > 0 && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ background: '#1976d2', color: '#fff' }}>
+                  {['Fecha', 'Canal', 'Asunto', 'Estado'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((m, i) => (
+                  <tr key={m.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9f9f9', borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{m.sentAt || m.scheduledAt || '—'}</td>
+                    <td style={{ padding: '8px 12px' }}><ChannelBadge channel={m.channel} /></td>
+                    <td style={{ padding: '8px 12px' }}>{m.subject || <em style={{ color: '#888' }}>Sin asunto</em>}</td>
+                    <td style={{ padding: '8px 12px' }}><StatusBadge status={m.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ===== PLANTILLAS ===== */}
+      {tab === 'templates' && (
+        <div>
+          {templates.length === 0 && <p style={{ color: '#888' }}>Cargando plantillas...</p>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+            {templates.map(tpl => (
+              <div key={tpl.code} style={{ border: '1px solid #e0e0e0', borderRadius: 8, padding: 16, background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,.07)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: '#1976d2' }}>{tpl.code}</span>
+                  <ChannelBadge channel={tpl.channel} />
+                </div>
+                <p style={{ fontWeight: 600, margin: '0 0 6px', fontSize: 15 }}>{tpl.name}</p>
+                <p style={{ fontSize: 13, color: '#555', margin: '0 0 12px', lineHeight: 1.5 }}>
+                  {tpl.body.length > 100 ? tpl.body.substring(0, 100) + '…' : tpl.body}
+                </p>
+                <button
+                  onClick={() => applyTemplate(tpl)}
+                  style={{ padding: '6px 16px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                >
+                  Usar plantilla
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+
+    # ------------------------------------------------------------------ #
+    #  Round 32 - Clinical Photos Gallery Page                             #
+    # ------------------------------------------------------------------ #
+    def generate_clinical_photos_page_tsx(self) -> str:
+        """Generates ClinicalPhotosPage.tsx — clinical photo gallery with before/after comparator."""
+        return """import { useState } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface ClinicalPhoto {
+  id: string;
+  patientId: string;
+  type: string;
+  tooth: string;
+  description: string;
+  url: string;
+  takenAt: string;
+  category: string;
+}
+
+interface BeforeAfterPair {
+  before: ClinicalPhoto;
+  after: ClinicalPhoto;
+  tooth: string;
+  procedure: string;
+}
+
+const TYPE_COLORS: Record<string, string> = {
+  BEFORE:    '#1565c0',
+  AFTER:     '#2e7d32',
+  XRAY:      '#6a1b9a',
+  PANORAMIC: '#e65100',
+  INTRAORAL: '#00695c',
+  OTHER:     '#546e7a',
+};
+
+const TYPE_LABELS: Record<string, string> = {
+  BEFORE:    'Antes',
+  AFTER:     'Después',
+  XRAY:      'Rx',
+  PANORAMIC: 'Panorámica',
+  INTRAORAL: 'Intraoral',
+  OTHER:     'Otra',
+};
+
+const FILTER_TABS = [
+  { key: 'ALL',       label: 'Todas' },
+  { key: 'BA',        label: 'Antes-Después' },
+  { key: 'XRAY',      label: 'Rx' },
+  { key: 'INTRAORAL', label: 'Intrabucales' },
+];
+
+function PhotoPlaceholder({ type }: { type: string }) {
+  const color = TYPE_COLORS[type] ?? '#78909c';
+  return (
+    <div style={{
+      width: '100%', height: 140,
+      background: '#e0e0e0',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      borderRadius: 6, color: '#757575', fontSize: 13,
+      border: `2px solid ${color}22`,
+    }}>
+      <span style={{ fontSize: 32 }}>📷</span>
+      <span style={{ marginTop: 4 }}>{TYPE_LABELS[type] ?? type}</span>
+    </div>
+  );
+}
+
+export default function ClinicalPhotosPage() {
+  const [patientId, setPatientId]   = useState('00000000-0000-0000-0000-000000000001');
+  const [photos, setPhotos]         = useState<ClinicalPhoto[]>([]);
+  const [pairs, setPairs]           = useState<BeforeAfterPair[]>([]);
+  const [activeTab, setActiveTab]   = useState('ALL');
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState('');
+
+  // Upload form state
+  const [upType, setUpType]         = useState('BEFORE');
+  const [upTooth, setUpTooth]       = useState('');
+  const [upDesc, setUpDesc]         = useState('');
+  const [upCategory, setUpCategory] = useState('INITIAL');
+  const [upFile, setUpFile]         = useState<File | null>(null);
+  const [uploading, setUploading]   = useState(false);
+
+  async function loadPhotos() {
+    if (!patientId.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await apiFetch(`${API_BASE}/api/clinical-photos/patient/${patientId}`);
+      const data = await res.json();
+      setPhotos(data);
+
+      const res2 = await apiFetch(`${API_BASE}/api/clinical-photos/patient/${patientId}/compare`);
+      const data2 = await res2.json();
+      setPairs(data2);
+    } catch (e: unknown) {
+      setError('Error cargando fotos: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDelete(photoId: string) {
+    if (!confirm('¿Eliminar esta foto?')) return;
+    const res = await apiFetch(`${API_BASE}/api/clinical-photos/${photoId}`, { method: 'DELETE' });
+    if (res.ok) {
+      setPhotos(prev => prev.filter(p => p.id !== photoId));
+    }
+  }
+
+  async function handleUpload() {
+    if (!patientId.trim()) { alert('Introduce un ID de paciente primero.'); return; }
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      const metadata = { type: upType, tooth: upTooth, description: upDesc, category: upCategory };
+      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      if (upFile) formData.append('file', upFile);
+
+      const res = await apiFetch(`${API_BASE}/api/clinical-photos/patient/${patientId}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      setPhotos(prev => [...prev, data]);
+      setUpTooth(''); setUpDesc(''); setUpFile(null);
+    } catch (e: unknown) {
+      alert('Error subiendo foto: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function filteredPhotos(): ClinicalPhoto[] {
+    if (activeTab === 'ALL') return photos;
+    if (activeTab === 'BA') return photos.filter(p => p.type === 'BEFORE' || p.type === 'AFTER');
+    if (activeTab === 'XRAY') return photos.filter(p => p.type === 'XRAY' || p.type === 'PANORAMIC');
+    if (activeTab === 'INTRAORAL') return photos.filter(p => p.type === 'INTRAORAL');
+    return photos;
+  }
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <h2 style={{ marginBottom: 16 }}>Fotos Clínicas</h2>
+
+      {/* Search */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'center' }}>
+        <input
+          value={patientId}
+          onChange={e => setPatientId(e.target.value)}
+          placeholder="UUID del paciente"
+          style={{ flex: 1, padding: '8px 12px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14 }}
+        />
+        <button
+          onClick={loadPhotos}
+          style={{ padding: '8px 20px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+          Cargar fotos
+        </button>
+      </div>
+
+      {error && <div style={{ color: '#c62828', marginBottom: 12 }}>{error}</div>}
+      {loading && <div style={{ marginBottom: 12 }}>Cargando...</div>}
+
+      {photos.length > 0 && (
+        <>
+          {/* Filter tabs */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '2px solid #e0e0e0' }}>
+            {FILTER_TABS.map(tab => (
+              <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
+                padding: '8px 16px', border: 'none', background: activeTab === tab.key ? '#1976d2' : '#f5f5f5',
+                color: activeTab === tab.key ? '#fff' : '#333', borderRadius: '4px 4px 0 0', cursor: 'pointer',
+                fontWeight: activeTab === tab.key ? 700 : 400,
+              }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab !== 'BA' ? (
+            /* Photo grid — 3 columns */
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 32 }}>
+              {filteredPhotos().map(photo => (
+                <div key={photo.id} style={{
+                  background: '#fff', borderRadius: 8, overflow: 'hidden',
+                  boxShadow: '0 1px 4px rgba(0,0,0,.12)', position: 'relative',
+                }}>
+                  <div style={{ position: 'relative' }}>
+                    <PhotoPlaceholder type={photo.type} />
+                    {/* Hover overlay */}
+                    <div className="photo-overlay" style={{
+                      position: 'absolute', inset: 0,
+                      background: 'rgba(0,0,0,.45)',
+                      display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center',
+                      opacity: 0, transition: 'opacity .2s',
+                    }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '0'; }}>
+                      <button style={{ padding: '6px 14px', background: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+                        Ver
+                      </button>
+                      <button onClick={() => handleDelete(photo.id)} style={{ padding: '6px 14px', background: '#ef5350', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <span style={{
+                        background: TYPE_COLORS[photo.type] ?? '#78909c',
+                        color: '#fff', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700,
+                      }}>{TYPE_LABELS[photo.type] ?? photo.type}</span>
+                      {photo.tooth && (
+                        <span style={{ fontSize: 12, color: '#555', background: '#f0f0f0', borderRadius: 4, padding: '2px 6px' }}>
+                          Diente {photo.tooth}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#333', marginBottom: 4 }}>{photo.description}</div>
+                    <div style={{ fontSize: 11, color: '#999' }}>{photo.takenAt?.slice(0, 10)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* Before / After comparator */
+            <div style={{ marginBottom: 32 }}>
+              <h3 style={{ marginBottom: 16, color: '#333' }}>Comparador Antes / Después</h3>
+              {pairs.length === 0 ? (
+                <p style={{ color: '#888' }}>No hay pares antes/después para este paciente.</p>
+              ) : (
+                pairs.map((pair, i) => (
+                  <div key={i} style={{
+                    background: '#fff', borderRadius: 8, padding: 20,
+                    boxShadow: '0 1px 4px rgba(0,0,0,.12)', marginBottom: 24,
+                  }}>
+                    <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>
+                      Diente {pair.tooth} — {pair.procedure}
+                    </div>
+                    <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
+                      {/* Before */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ textAlign: 'center', marginBottom: 8, color: '#1565c0', fontWeight: 700, fontSize: 13 }}>ANTES</div>
+                        <PhotoPlaceholder type="BEFORE" />
+                        <div style={{ fontSize: 12, color: '#777', marginTop: 6, textAlign: 'center' }}>{pair.before.description}</div>
+                        <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center' }}>{pair.before.takenAt?.slice(0, 10)}</div>
+                      </div>
+                      {/* Divider */}
+                      <div style={{ width: 2, background: '#bdbdbd', margin: '0 16px', borderRadius: 2 }} />
+                      {/* After */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ textAlign: 'center', marginBottom: 8, color: '#2e7d32', fontWeight: 700, fontSize: 13 }}>DESPUÉS</div>
+                        <PhotoPlaceholder type="AFTER" />
+                        <div style={{ fontSize: 12, color: '#777', marginTop: 6, textAlign: 'center' }}>{pair.after.description}</div>
+                        <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center' }}>{pair.after.takenAt?.slice(0, 10)}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Upload form */}
+      <div style={{ background: '#f9f9f9', borderRadius: 8, padding: 20, border: '1px solid #e0e0e0' }}>
+        <h3 style={{ marginBottom: 14, marginTop: 0 }}>Subir nueva foto</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>Tipo</label>
+            <select value={upType} onChange={e => setUpType(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4 }}>
+              {['BEFORE','AFTER','XRAY','PANORAMIC','INTRAORAL','OTHER'].map(t => (
+                <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>Diente</label>
+            <input value={upTooth} onChange={e => setUpTooth(e.target.value)} placeholder="Ej. 11, 36..."
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>Descripción</label>
+            <input value={upDesc} onChange={e => setUpDesc(e.target.value)} placeholder="Descripción breve"
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>Categoría</label>
+            <select value={upCategory} onChange={e => setUpCategory(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4 }}>
+              {['INITIAL','PROGRESS','FINAL','EMERGENCY'].map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>Archivo</label>
+            <input type="file" accept="image/*" onChange={e => setUpFile(e.target.files?.[0] ?? null)}
+              style={{ width: '100%', padding: '6px 0' }} />
+          </div>
+        </div>
+        <button
+          onClick={handleUpload}
+          disabled={uploading}
+          style={{ marginTop: 16, padding: '10px 28px', background: uploading ? '#90a4ae' : '#1976d2',
+            color: '#fff', border: 'none', borderRadius: 4, cursor: uploading ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
+          {uploading ? 'Subiendo...' : 'Subir foto'}
+        </button>
+      </div>
+    </div>
+  );
+}
+"""
+
+    def generate_locations_page_tsx(self) -> str:
+        """
+        Generates LocationsPage.tsx — admin view for managing clinic locations.
+        Round 33.
+        """
+        return r"""import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface ClinicLocation {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  phone: string;
+  email: string;
+  schedule: string;
+  active: boolean;
+  services: string[];
+}
+
+interface AvailableSlot {
+  time: string;
+  available: boolean;
+  dentistId: string;
+  dentistName: string;
+}
+
+const ALL_SERVICES = ['Ortodoncia', 'Implantes', 'Blanqueamiento', 'Periodoncia', 'Endodoncia', 'Estetica', 'Odontopediatria', 'Cirugia oral', 'Protesis'];
+
+export default function LocationsPage() {
+  const [locations, setLocations] = useState<ClinicLocation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: '', address: '', city: '', phone: '', email: '', schedule: '', services: [] as string[] });
+  const [editId, setEditId] = useState<string | null>(null);
+  const [availId, setAvailId] = useState<string | null>(null);
+  const [availDate, setAvailDate] = useState(new Date().toISOString().slice(0, 10));
+  const [slots, setSlots] = useState<AvailableSlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/locations`);
+      const data = await res.json();
+      setLocations(data);
+    } catch { setError('Error al cargar sedes'); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const url = editId ? `${API_BASE}/api/locations/${editId}` : `${API_BASE}/api/locations`;
+      const method = editId ? 'PUT' : 'POST';
+      const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      if (res.ok) { setShowForm(false); setForm({ name: '', address: '', city: '', phone: '', email: '', schedule: '', services: [] }); setEditId(null); load(); }
+    } catch { setError('Error al guardar sede'); }
+  };
+
+  const handleEdit = (loc: ClinicLocation) => {
+    setForm({ name: loc.name, address: loc.address, city: loc.city, phone: loc.phone, email: loc.email, schedule: loc.schedule, services: loc.services });
+    setEditId(loc.id);
+    setShowForm(true);
+  };
+
+  const loadSlots = async (id: string, date: string) => {
+    setSlotsLoading(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/locations/${id}/availability?date=${date}`);
+      const data = await res.json();
+      setSlots(data);
+    } catch { setError('Error al cargar disponibilidad'); } finally { setSlotsLoading(false); }
+  };
+
+  const toggleService = (svc: string) => {
+    setForm(f => ({
+      ...f,
+      services: f.services.includes(svc) ? f.services.filter(s => s !== svc) : [...f.services, svc]
+    }));
+  };
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h2 style={{ margin: 0, color: '#1565c0' }}>Gestion de Sedes</h2>
+        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ name: '', address: '', city: '', phone: '', email: '', schedule: '', services: [] }); }}
+          style={{ padding: '8px 20px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+          + Nueva sede
+        </button>
+      </div>
+      {error && <p style={{ color: '#c62828' }}>{error}</p>}
+
+      {showForm && (
+        <div style={{ background: '#f5f9ff', border: '1px solid #bbdefb', borderRadius: 8, padding: 20, marginBottom: 24 }}>
+          <h3 style={{ marginTop: 0, color: '#1565c0' }}>{editId ? 'Editar sede' : 'Nueva sede'}</h3>
+          <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {(['name', 'city', 'address', 'phone', 'email', 'schedule'] as const).map(field => (
+              <label key={field} style={{ display: 'flex', flexDirection: 'column', fontSize: 13, gap: 4 }}>
+                {field === 'name' ? 'Nombre' : field === 'city' ? 'Ciudad' : field === 'address' ? 'Direccion' : field === 'phone' ? 'Telefono' : field === 'email' ? 'Email' : 'Horario'}
+                <input value={(form as any)[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+                  required style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #90caf9', fontSize: 14 }} />
+              </label>
+            ))}
+            <div style={{ gridColumn: '1 / -1' }}>
+              <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 600 }}>Servicios:</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {ALL_SERVICES.map(svc => (
+                  <label key={svc} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={form.services.includes(svc)} onChange={() => toggleService(svc)} />
+                    {svc}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10 }}>
+              <button type="submit" style={{ padding: '8px 20px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                {editId ? 'Guardar cambios' : 'Crear sede'}
+              </button>
+              <button type="button" onClick={() => setShowForm(false)}
+                style={{ padding: '8px 20px', background: '#757575', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {loading && <p>Cargando sedes...</p>}
+      {!loading && locations.length === 0 && <p style={{ color: '#888' }}>No hay sedes registradas.</p>}
+      {locations.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <thead>
+            <tr style={{ background: '#1976d2', color: '#fff' }}>
+              {['Nombre', 'Ciudad', 'Telefono', 'Email', 'Horario', 'Estado', 'Acciones'].map(h => (
+                <th key={h} style={{ padding: '8px 12px', textAlign: 'left' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {locations.map((loc, i) => (
+              <tr key={loc.id} style={{ background: i % 2 === 0 ? '#fff' : '#f5f9ff', borderBottom: '1px solid #e3f2fd' }}>
+                <td style={{ padding: '8px 12px', fontWeight: 600 }}>{loc.name}</td>
+                <td style={{ padding: '8px 12px' }}>{loc.city}</td>
+                <td style={{ padding: '8px 12px' }}>{loc.phone}</td>
+                <td style={{ padding: '8px 12px' }}>{loc.email}</td>
+                <td style={{ padding: '8px 12px' }}>{loc.schedule}</td>
+                <td style={{ padding: '8px 12px' }}>
+                  <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                    background: loc.active ? '#e8f5e9' : '#fce4ec', color: loc.active ? '#2e7d32' : '#c62828' }}>
+                    {loc.active ? 'Activa' : 'Inactiva'}
+                  </span>
+                </td>
+                <td style={{ padding: '8px 12px' }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button onClick={() => handleEdit(loc)}
+                      style={{ padding: '4px 10px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                      Editar
+                    </button>
+                    <button onClick={() => { setAvailId(loc.id); loadSlots(loc.id, availDate); }}
+                      style={{ padding: '4px 10px', background: '#6a1b9a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                      Ver disponibilidad
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {availId && (
+        <div style={{ marginTop: 24, background: '#f3e5f5', border: '1px solid #ce93d8', borderRadius: 8, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ margin: 0, color: '#6a1b9a' }}>Disponibilidad - {locations.find(l => l.id === availId)?.name}</h3>
+            <button onClick={() => setAvailId(null)}
+              style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#6a1b9a' }}>x</button>
+          </div>
+          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            Fecha:
+            <input type="date" value={availDate} onChange={e => { setAvailDate(e.target.value); loadSlots(availId, e.target.value); }}
+              style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ce93d8' }} />
+          </label>
+          {slotsLoading && <p>Cargando horarios...</p>}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {slots.map(s => (
+              <div key={s.time} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #ce93d8',
+                background: s.available ? '#fff' : '#eeeeee', color: s.available ? '#1a237e' : '#9e9e9e',
+                fontWeight: 600, fontSize: 14, opacity: s.available ? 1 : 0.6 }}>
+                {s.time} {s.available ? 'OK' : 'X'}
+                {s.available && <div style={{ fontSize: 11, fontWeight: 400, color: '#6a1b9a' }}>{s.dentistName}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    def generate_online_booking_page_tsx(self) -> str:
+        """
+        Generates OnlineBookingPage.tsx — public patient self-service booking wizard.
+        Round 33.
+        """
+        return r"""import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface Location { id: string; name: string; city: string; address: string; }
+interface Dentist { id: string; name: string; specialty: string; }
+interface Slot { time: string; available: boolean; }
+interface BookingConfirmation {
+  confirmCode: string; patientName: string; date: string; time: string;
+  locationName: string; dentistName: string; procedure: string; status: string;
+}
+
+export default function OnlineBookingPage() {
+  const [step, setStep] = useState(1);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [dentists, setDentists] = useState<Dentist[]>([]);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [selectedDentist, setSelectedDentist] = useState<Dentist | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [selectedSlot, setSelectedSlot] = useState('');
+  const [form, setForm] = useState({ patientName: '', patientPhone: '', patientEmail: '', procedure: '', notes: '' });
+  const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [verifyResult, setVerifyResult] = useState<BookingConfirmation | null>(null);
+  const [verifyError, setVerifyError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiFetch(`${API_BASE}/api/booking/locations`).then(r => r.json()).then(setLocations).catch(() => {});
+  }, []);
+
+  const handleSelectLocation = async (loc: Location) => {
+    setSelectedLocation(loc);
+    setSelectedDentist(null);
+    setSlots([]);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/booking/locations/${loc.id}/dentists`);
+      const data = await res.json();
+      setDentists(data);
+    } catch { setError('Error al cargar dentistas'); }
+  };
+
+  const loadSlots = async (locId: string, date: string, dentistId?: string) => {
+    try {
+      const url = `${API_BASE}/api/booking/locations/${locId}/availability?date=${date}${dentistId ? '&dentistId=' + dentistId : ''}`;
+      const res = await apiFetch(url);
+      const data = await res.json();
+      setSlots(data);
+    } catch { setError('Error al cargar horarios'); }
+  };
+
+  const handleSelectDentist = (d: Dentist) => {
+    setSelectedDentist(d);
+    if (selectedLocation) loadSlots(selectedLocation.id, selectedDate, d.id);
+  };
+
+  const handleDateChange = (date: string) => {
+    setSelectedDate(date);
+    if (selectedLocation) loadSlots(selectedLocation.id, date, selectedDentist?.id);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLocation || !selectedDentist || !selectedSlot) { setError('Completa todos los pasos'); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const body = {
+        patientName: form.patientName, patientPhone: form.patientPhone, patientEmail: form.patientEmail,
+        locationId: selectedLocation.id, dentistId: selectedDentist.id,
+        date: selectedDate, time: selectedSlot,
+        procedure: form.procedure || 'Consulta general', notes: form.notes
+      };
+      const res = await apiFetch(`${API_BASE}/api/booking/request`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      setConfirmation(data);
+    } catch { setError('Error al enviar la reserva'); } finally { setLoading(false); }
+  };
+
+  const handleVerify = async () => {
+    setVerifyError(''); setVerifyResult(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/booking/confirm/${verifyCode.trim()}`);
+      if (!res.ok) { setVerifyError('Codigo no encontrado'); return; }
+      const data = await res.json();
+      setVerifyResult(data);
+    } catch { setVerifyError('Error al verificar el codigo'); }
+  };
+
+  const stepLabel = (n: number) => ['Sede y fecha', 'Horario', 'Tus datos'][n - 1];
+  const canGoNext1 = !!selectedLocation && !!selectedDentist;
+  const canGoNext2 = !!selectedSlot;
+
+  const statusColor = (s: string) => s === 'CONFIRMED' ? '#2e7d32' : s === 'REJECTED' ? '#c62828' : '#e65100';
+  const statusBg = (s: string) => s === 'CONFIRMED' ? '#e8f5e9' : s === 'REJECTED' ? '#fce4ec' : '#fff3e0';
+
+  return (
+    <div style={{ maxWidth: 820, margin: '0 auto', padding: 24, fontFamily: 'sans-serif' }}>
+      <div style={{ background: 'linear-gradient(135deg,#1565c0,#42a5f5)', color: '#fff', borderRadius: 12, padding: '28px 32px', marginBottom: 28 }}>
+        <h1 style={{ margin: 0, fontSize: 26 }}>Reserva tu cita online</h1>
+        <p style={{ margin: '6px 0 0', opacity: 0.85, fontSize: 15 }}>Proceso rapido y sencillo en 3 pasos</p>
+      </div>
+
+      {!confirmation && (
+        <div>
+          <div style={{ display: 'flex', marginBottom: 28, gap: 8 }}>
+            {[1, 2, 3].map(n => (
+              <div key={n} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 700, fontSize: 16, background: step >= n ? '#1565c0' : '#e0e0e0', color: step >= n ? '#fff' : '#9e9e9e' }}>
+                  {n}
+                </div>
+                <div style={{ fontSize: 12, marginTop: 4, color: step >= n ? '#1565c0' : '#9e9e9e', fontWeight: step === n ? 700 : 400 }}>
+                  {stepLabel(n)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {error && <p style={{ color: '#c62828', background: '#fce4ec', borderRadius: 6, padding: '8px 14px' }}>{error}</p>}
+
+          {step === 1 && (
+            <div>
+              <h3 style={{ color: '#1565c0', marginBottom: 16 }}>Elige una sede</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14, marginBottom: 24 }}>
+                {locations.map(loc => (
+                  <div key={loc.id} onClick={() => handleSelectLocation(loc)}
+                    style={{ padding: 16, borderRadius: 8,
+                      border: selectedLocation?.id === loc.id ? '2px solid #1565c0' : '2px solid #e0e0e0',
+                      background: selectedLocation?.id === loc.id ? '#e3f2fd' : '#fff', cursor: 'pointer' }}>
+                    <div style={{ fontWeight: 700, color: '#1565c0', fontSize: 15 }}>{loc.name}</div>
+                    <div style={{ fontSize: 13, color: '#555', marginTop: 4 }}>{loc.city}</div>
+                    <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{loc.address}</div>
+                  </div>
+                ))}
+              </div>
+              {selectedLocation && (
+                <div>
+                  <h3 style={{ color: '#1565c0', marginBottom: 12 }}>Elige fecha</h3>
+                  <input type="date" value={selectedDate} min={new Date().toISOString().slice(0, 10)}
+                    onChange={e => handleDateChange(e.target.value)}
+                    style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 15, marginBottom: 20 }} />
+                  <h3 style={{ color: '#1565c0', marginBottom: 12 }}>Elige dentista</h3>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {dentists.map(d => (
+                      <div key={d.id} onClick={() => handleSelectDentist(d)}
+                        style={{ padding: '10px 18px', borderRadius: 8,
+                          border: selectedDentist?.id === d.id ? '2px solid #1565c0' : '2px solid #e0e0e0',
+                          background: selectedDentist?.id === d.id ? '#e3f2fd' : '#fff', cursor: 'pointer' }}>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{d.name}</div>
+                        <div style={{ fontSize: 12, color: '#1565c0' }}>{d.specialty}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={() => setStep(2)} disabled={!canGoNext1}
+                  style={{ padding: '10px 28px', background: canGoNext1 ? '#1565c0' : '#e0e0e0',
+                    color: canGoNext1 ? '#fff' : '#9e9e9e', border: 'none', borderRadius: 6,
+                    cursor: canGoNext1 ? 'pointer' : 'not-allowed', fontSize: 15 }}>
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div>
+              <h3 style={{ color: '#1565c0', marginBottom: 16 }}>
+                Disponibilidad en {selectedLocation?.name} el {selectedDate}
+              </h3>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 24 }}>
+                {slots.map(s => (
+                  <button key={s.time} onClick={() => s.available && setSelectedSlot(s.time)}
+                    disabled={!s.available}
+                    style={{ padding: '12px 20px', borderRadius: 8,
+                      border: selectedSlot === s.time ? '2px solid #1565c0' : s.available ? '2px solid #90caf9' : '2px solid #e0e0e0',
+                      background: selectedSlot === s.time ? '#1565c0' : s.available ? '#fff' : '#f5f5f5',
+                      color: selectedSlot === s.time ? '#fff' : s.available ? '#1a237e' : '#bbb',
+                      cursor: s.available ? 'pointer' : 'not-allowed', fontWeight: 600, fontSize: 15 }}>
+                    {s.time}
+                  </button>
+                ))}
+                {slots.length === 0 && <p style={{ color: '#888' }}>No hay horarios disponibles.</p>}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <button onClick={() => setStep(1)} style={{ padding: '10px 20px', background: '#e0e0e0', color: '#333', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 15 }}>
+                  Anterior
+                </button>
+                <button onClick={() => setStep(3)} disabled={!canGoNext2}
+                  style={{ padding: '10px 28px', background: canGoNext2 ? '#1565c0' : '#e0e0e0',
+                    color: canGoNext2 ? '#fff' : '#9e9e9e', border: 'none', borderRadius: 6,
+                    cursor: canGoNext2 ? 'pointer' : 'not-allowed', fontSize: 15 }}>
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div>
+              <h3 style={{ color: '#1565c0', marginBottom: 4 }}>Tus datos</h3>
+              <p style={{ color: '#555', fontSize: 13, marginBottom: 16 }}>
+                Reserva: {selectedLocation?.name} - {selectedDate} - {selectedSlot} - {selectedDentist?.name}
+              </p>
+              <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+                  Nombre completo *
+                  <input value={form.patientName} onChange={e => setForm(f => ({ ...f, patientName: e.target.value }))} required
+                    style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+                  Telefono *
+                  <input value={form.patientPhone} onChange={e => setForm(f => ({ ...f, patientPhone: e.target.value }))} required
+                    style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+                  Email *
+                  <input type="email" value={form.patientEmail} onChange={e => setForm(f => ({ ...f, patientEmail: e.target.value }))} required
+                    style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+                  Procedimiento / motivo de consulta
+                  <input value={form.procedure} onChange={e => setForm(f => ({ ...f, procedure: e.target.value }))}
+                    placeholder="Ej: Revision general, ortodoncia..."
+                    style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, gridColumn: '1 / -1' }}>
+                  Notas adicionales
+                  <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3}
+                    style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, resize: 'vertical' }} />
+                </label>
+                <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between' }}>
+                  <button type="button" onClick={() => setStep(2)}
+                    style={{ padding: '10px 20px', background: '#e0e0e0', color: '#333', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 15 }}>
+                    Anterior
+                  </button>
+                  <button type="submit" disabled={loading}
+                    style={{ padding: '10px 28px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 15, fontWeight: 600 }}>
+                    {loading ? 'Enviando...' : 'Confirmar reserva'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+      )}
+
+      {confirmation && (
+        <div style={{ background: '#e8f5e9', border: '2px solid #a5d6a7', borderRadius: 12, padding: 28, textAlign: 'center' }}>
+          <h2 style={{ color: '#2e7d32', marginBottom: 8 }}>Reserva recibida</h2>
+          <p style={{ color: '#555', marginBottom: 16 }}>Guarda tu codigo de confirmacion:</p>
+          <div style={{ background: '#fff', border: '1px solid #a5d6a7', borderRadius: 8, padding: '12px 24px', display: 'inline-block', marginBottom: 20 }}>
+            <span style={{ fontSize: 24, fontWeight: 700, color: '#1565c0', letterSpacing: 2 }}>{confirmation.confirmCode}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 400, margin: '0 auto 20px', textAlign: 'left', fontSize: 14 }}>
+            <div><strong>Paciente:</strong></div><div>{confirmation.patientName}</div>
+            <div><strong>Fecha:</strong></div><div>{confirmation.date}</div>
+            <div><strong>Hora:</strong></div><div>{confirmation.time}</div>
+            <div><strong>Sede:</strong></div><div>{confirmation.locationName}</div>
+            <div><strong>Dentista:</strong></div><div>{confirmation.dentistName}</div>
+            <div><strong>Procedimiento:</strong></div><div>{confirmation.procedure}</div>
+            <div><strong>Estado:</strong></div>
+            <div>
+              <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                background: statusBg(confirmation.status), color: statusColor(confirmation.status) }}>
+                {confirmation.status}
+              </span>
+            </div>
+          </div>
+          <button onClick={() => { setConfirmation(null); setStep(1); setSelectedLocation(null); setSelectedDentist(null); setSelectedSlot(''); setForm({ patientName: '', patientPhone: '', patientEmail: '', procedure: '', notes: '' }); }}
+            style={{ padding: '10px 24px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+            Nueva reserva
+          </button>
+        </div>
+      )}
+
+      <div style={{ marginTop: 36, background: '#f5f9ff', border: '1px solid #bbdefb', borderRadius: 10, padding: 20 }}>
+        <h3 style={{ color: '#1565c0', marginTop: 0, marginBottom: 12 }}>Verificar reserva existente</h3>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input value={verifyCode} onChange={e => setVerifyCode(e.target.value)} placeholder="Ej: BOOK-A1B2C3D4"
+            style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, width: 220 }} />
+          <button onClick={handleVerify}
+            style={{ padding: '8px 20px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+            Consultar
+          </button>
+        </div>
+        {verifyError && <p style={{ color: '#c62828', marginTop: 8 }}>{verifyError}</p>}
+        {verifyResult && (
+          <div style={{ marginTop: 14, fontSize: 14, display: 'grid', gridTemplateColumns: '140px 1fr', gap: '6px 12px' }}>
+            <strong>Codigo:</strong><span>{verifyResult.confirmCode}</span>
+            <strong>Paciente:</strong><span>{verifyResult.patientName}</span>
+            <strong>Fecha:</strong><span>{verifyResult.date} {verifyResult.time}</span>
+            <strong>Sede:</strong><span>{verifyResult.locationName}</span>
+            <strong>Dentista:</strong><span>{verifyResult.dentistName}</span>
+            <strong>Estado:</strong>
+            <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+              background: statusBg(verifyResult.status), color: statusColor(verifyResult.status) }}>
+              {verifyResult.status}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+"""

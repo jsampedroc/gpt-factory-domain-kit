@@ -3812,3 +3812,861 @@ public class PaymentController {{
     ) {{}}
 }}
 """
+
+    def generate_anamnesis_controller(self, base_package: str) -> str:
+        """
+        Generates AnamnesisController.java — patient medical history / health questionnaire.
+        Uses in-memory ConcurrentHashMap keyed by patientId (upsert logic).
+        Round 30.
+        """
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * REST controller for patient anamnesis (medical history and health questionnaire).
+ * Round 30 — in-memory implementation. Wire with real repositories in production.
+ */
+@RestController
+@RequestMapping("/api/anamnesis")
+@Tag(name = "Anamnesis", description = "Patient medical history and health questionnaire")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class AnamnesisController {{
+
+    // Keyed by patientId for upsert logic
+    private static final Map<UUID, AnamnesisResponse> STORE = new ConcurrentHashMap<>();
+
+    private static final DateTimeFormatter FMT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
+    static {{
+        // Pre-populate with 3 demo anamnesis records
+        UUID p1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID p2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID p3 = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        String now = LocalDateTime.now().format(FMT);
+
+        STORE.put(p1, new AnamnesisResponse(
+                UUID.randomUUID(), p1, "Paciente Demo 1",
+                true, false, false, false, false, false, false, false, false, false,
+                false, false, false, "",
+                "Metformina 500mg",
+                "Extraccion molar inferior 2020", "2023-06-15",
+                false, false,
+                "Maria Garcia", "+34 600 111 222",
+                "Control glucemico previo a procedimientos invasivos",
+                now, now));
+
+        STORE.put(p2, new AnamnesisResponse(
+                UUID.randomUUID(), p2, "Paciente Demo 2",
+                false, true, true, false, false, false, false, false, true, false,
+                false, true, false, "Ibuprofeno",
+                "Atenolol 50mg, Acenocumarol 4mg",
+                "Empastes multiples 2019", "2024-01-10",
+                false, false,
+                "Carlos Lopez", "+34 600 333 444",
+                "Paciente anticoagulado — suspender Acenocumarol segun protocolo",
+                now, now));
+
+        STORE.put(p3, new AnamnesisResponse(
+                UUID.randomUUID(), p3, "Paciente Demo 3",
+                false, false, false, false, false, true, true, false, false, false,
+                true, false, false, "",
+                "Antirretrovirales TAR",
+                "Ninguno significativo", "2024-09-20",
+                true, false,
+                "Ana Martinez", "+34 600 555 666",
+                "Seguir protocolo de bioseguridad reforzado",
+                now, now));
+    }}
+
+    // ---------------------------------------------------------------
+    // Endpoints
+    // ---------------------------------------------------------------
+
+    /** GET /api/anamnesis/patient/{{patientId}} — get anamnesis for patient (404 if none) */
+    @GetMapping("/patient/{{patientId}}")
+    public ResponseEntity<AnamnesisResponse> getByPatient(@PathVariable UUID patientId) {{
+        AnamnesisResponse record = STORE.get(patientId);
+        if (record == null) {{
+            return ResponseEntity.notFound().build();
+        }}
+        return ResponseEntity.ok(record);
+    }}
+
+    /** POST /api/anamnesis — create or update anamnesis (upsert by patientId) */
+    @PostMapping
+    public ResponseEntity<AnamnesisResponse> upsert(@RequestBody AnamnesisRequest req) {{
+        String now = LocalDateTime.now().format(FMT);
+        AnamnesisResponse existing = STORE.get(req.patientId());
+        UUID id = existing != null ? existing.id() : UUID.randomUUID();
+        String createdAt = existing != null ? existing.createdAt() : now;
+
+        AnamnesisResponse record = new AnamnesisResponse(
+                id,
+                req.patientId(),
+                "Paciente " + req.patientId().toString().substring(0, 8),
+                req.diabetes(), req.hypertension(), req.heartDisease(), req.asthma(),
+                req.epilepsy(), req.hivPositive(), req.hepatitis(), req.osteoporosis(),
+                req.anticoagulants(), req.pregnant(),
+                req.allergyPenicillin(), req.allergyLatex(), req.allergyAnesthesia(),
+                req.otherAllergies() != null ? req.otherAllergies() : "",
+                req.currentMedication() != null ? req.currentMedication() : "",
+                req.previousDentalProblems() != null ? req.previousDentalProblems() : "",
+                req.lastDentalVisit() != null ? req.lastDentalVisit() : "",
+                req.smoker(), req.alcoholConsumer(),
+                req.emergencyContact() != null ? req.emergencyContact() : "",
+                req.emergencyPhone() != null ? req.emergencyPhone() : "",
+                req.additionalNotes() != null ? req.additionalNotes() : "",
+                createdAt,
+                now
+        );
+        STORE.put(req.patientId(), record);
+        return ResponseEntity.ok(record);
+    }}
+
+    /** GET /api/anamnesis/{{id}} — get by ID */
+    @GetMapping("/{{id}}")
+    public ResponseEntity<AnamnesisResponse> getById(@PathVariable UUID id) {{
+        AnamnesisResponse record = STORE.values().stream()
+                .filter(a -> a.id().equals(id))
+                .findFirst()
+                .orElse(null);
+        if (record == null) {{
+            return ResponseEntity.notFound().build();
+        }}
+        return ResponseEntity.ok(record);
+    }}
+
+    // ---------------------------------------------------------------
+    // Records
+    // ---------------------------------------------------------------
+
+    public record AnamnesisRequest(
+            UUID patientId,
+            // Medical conditions
+            boolean diabetes,
+            boolean hypertension,
+            boolean heartDisease,
+            boolean asthma,
+            boolean epilepsy,
+            boolean hivPositive,
+            boolean hepatitis,
+            boolean osteoporosis,
+            boolean anticoagulants,
+            boolean pregnant,
+            // Allergies
+            boolean allergyPenicillin,
+            boolean allergyLatex,
+            boolean allergyAnesthesia,
+            String otherAllergies,
+            // Current medication
+            String currentMedication,
+            // Dental history
+            String previousDentalProblems,
+            String lastDentalVisit,
+            // Habits
+            boolean smoker,
+            boolean alcoholConsumer,
+            // Emergency contact
+            String emergencyContact,
+            String emergencyPhone,
+            // Notes
+            String additionalNotes
+    ) {{}}
+
+    public record AnamnesisResponse(
+            UUID id,
+            UUID patientId,
+            String patientName,
+            // Medical conditions
+            boolean diabetes,
+            boolean hypertension,
+            boolean heartDisease,
+            boolean asthma,
+            boolean epilepsy,
+            boolean hivPositive,
+            boolean hepatitis,
+            boolean osteoporosis,
+            boolean anticoagulants,
+            boolean pregnant,
+            // Allergies
+            boolean allergyPenicillin,
+            boolean allergyLatex,
+            boolean allergyAnesthesia,
+            String otherAllergies,
+            // Current medication
+            String currentMedication,
+            // Dental history
+            String previousDentalProblems,
+            String lastDentalVisit,
+            // Habits
+            boolean smoker,
+            boolean alcoholConsumer,
+            // Emergency contact
+            String emergencyContact,
+            String emergencyPhone,
+            // Notes
+            String additionalNotes,
+            String createdAt,
+            String updatedAt
+    ) {{}}
+}}
+"""
+
+    def generate_clinic_location_controller(self, base_package: str) -> str:
+        """
+        Generates ClinicLocationController.java — multi-clinic location management.
+        Round 33.
+        """
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * REST controller for multi-clinic location management.
+ * Round 33 — in-memory implementation. Wire with real repositories in production.
+ */
+@RestController
+@RequestMapping("/api/locations")
+@Tag(name = "Locations", description = "Multi-clinic location management")
+public class ClinicLocationController {{
+
+    private static final Map<UUID, ClinicLocation> STORE = new ConcurrentHashMap<>();
+
+    static {{
+        UUID id1 = UUID.fromString("10000000-0000-0000-0000-000000000001");
+        UUID id2 = UUID.fromString("10000000-0000-0000-0000-000000000002");
+        UUID id3 = UUID.fromString("10000000-0000-0000-0000-000000000003");
+
+        STORE.put(id1, new ClinicLocation(id1, "Clínica Central", "Calle Mayor 1", "Madrid",
+                "91 100 0001", "central@dental.es", "Lun-Vie 9:00-18:00", true,
+                List.of("Ortodoncia", "Implantes", "Blanqueamiento")));
+        STORE.put(id2, new ClinicLocation(id2, "Clínica Norte", "Avenida Norte 45", "Barcelona",
+                "93 200 0002", "norte@dental.es", "Lun-Sáb 8:00-20:00", true,
+                List.of("Periodoncia", "Endodoncia", "Estética")));
+        STORE.put(id3, new ClinicLocation(id3, "Clínica Sur", "Paseo del Sur 12", "Sevilla",
+                "95 300 0003", "sur@dental.es", "Lun-Vie 9:00-17:00", true,
+                List.of("Odontopediatría", "Cirugía oral", "Prótesis")));
+    }}
+
+    /** GET /api/locations — list all clinic locations (public) */
+    @GetMapping
+    public ResponseEntity<List<ClinicLocation>> listAll() {{
+        return ResponseEntity.ok(new ArrayList<>(STORE.values()));
+    }}
+
+    /** POST /api/locations — create location (ADMIN) */
+    @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    public ResponseEntity<ClinicLocation> create(@RequestBody LocationRequest req) {{
+        UUID id = UUID.randomUUID();
+        ClinicLocation loc = new ClinicLocation(id, req.name(), req.address(), req.city(),
+                req.phone(), req.email(), req.schedule(), true,
+                req.services() != null ? req.services() : List.of());
+        STORE.put(id, loc);
+        return ResponseEntity.ok(loc);
+    }}
+
+    /** PUT /api/locations/{{id}} — update location (ADMIN) */
+    @PutMapping("/{{id}}")
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    public ResponseEntity<ClinicLocation> update(@PathVariable UUID id, @RequestBody LocationRequest req) {{
+        ClinicLocation existing = STORE.get(id);
+        if (existing == null) {{
+            return ResponseEntity.notFound().build();
+        }}
+        ClinicLocation updated = new ClinicLocation(id, req.name(), req.address(), req.city(),
+                req.phone(), req.email(), req.schedule(), existing.active(),
+                req.services() != null ? req.services() : List.of());
+        STORE.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    /** GET /api/locations/{{id}}/dentists — list dentists at this location */
+    @GetMapping("/{{id}}/dentists")
+    public ResponseEntity<List<Map<String, Object>>> getDentists(@PathVariable UUID id) {{
+        if (!STORE.containsKey(id)) {{
+            return ResponseEntity.notFound().build();
+        }}
+        List<Map<String, Object>> dentists = List.of(
+                Map.of("id", UUID.randomUUID().toString(), "name", "Dr. García", "specialty", "Ortodoncista"),
+                Map.of("id", UUID.randomUUID().toString(), "name", "Dra. López", "specialty", "Endodoncista")
+        );
+        return ResponseEntity.ok(dentists);
+    }}
+
+    /** GET /api/locations/{{id}}/availability?date=YYYY-MM-DD — available slots at location */
+    @GetMapping("/{{id}}/availability")
+    public ResponseEntity<List<AvailableSlot>> getAvailability(
+            @PathVariable UUID id,
+            @RequestParam(required = false) String date) {{
+        if (!STORE.containsKey(id)) {{
+            return ResponseEntity.notFound().build();
+        }}
+        String[] times = {{"09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00"}};
+        boolean[] avail = {{true, true, false, true, true, false, true, true}};
+        UUID dentistId = UUID.fromString("20000000-0000-0000-0000-000000000001");
+        List<AvailableSlot> slots = new ArrayList<>();
+        for (int i = 0; i < times.length; i++) {{
+            slots.add(new AvailableSlot(times[i], avail[i], dentistId, "Dr. García"));
+        }}
+        return ResponseEntity.ok(slots);
+    }}
+
+    // ---------------------------------------------------------------
+    // Records
+    // ---------------------------------------------------------------
+
+    public record ClinicLocation(
+            UUID id,
+            String name,
+            String address,
+            String city,
+            String phone,
+            String email,
+            String schedule,
+            boolean active,
+            List<String> services
+    ) {{}}
+
+    public record LocationRequest(
+            String name,
+            String address,
+            String city,
+            String phone,
+            String email,
+            String schedule,
+            List<String> services
+    ) {{}}
+
+    public record AvailableSlot(
+            String time,
+            boolean available,
+            UUID dentistId,
+            String dentistName
+    ) {{}}
+}}
+"""
+
+    def generate_online_booking_controller(self, base_package: str) -> str:
+        """
+        Generates OnlineBookingController.java — public patient self-service appointment booking.
+        Round 33.
+        """
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * REST controller for public patient self-service online booking.
+ * Round 33 — fully public (no authentication required). In-memory store.
+ */
+@RestController
+@RequestMapping("/api/booking")
+@Tag(name = "Online Booking", description = "Public patient self-service appointment booking")
+public class OnlineBookingController {{
+
+    private static final Map<String, BookingConfirmation> BOOKINGS = new ConcurrentHashMap<>();
+
+    /** GET /api/booking/locations — list locations */
+    @GetMapping("/locations")
+    public ResponseEntity<List<Map<String, Object>>> listLocations() {{
+        List<Map<String, Object>> locs = List.of(
+                Map.of("id", "10000000-0000-0000-0000-000000000001", "name", "Clínica Central",
+                        "city", "Madrid", "address", "Calle Mayor 1", "active", true),
+                Map.of("id", "10000000-0000-0000-0000-000000000002", "name", "Clínica Norte",
+                        "city", "Barcelona", "address", "Avenida Norte 45", "active", true),
+                Map.of("id", "10000000-0000-0000-0000-000000000003", "name", "Clínica Sur",
+                        "city", "Sevilla", "address", "Paseo del Sur 12", "active", true)
+        );
+        return ResponseEntity.ok(locs);
+    }}
+
+    /** GET /api/booking/locations/{{locationId}}/dentists — dentists at location */
+    @GetMapping("/locations/{{locationId}}/dentists")
+    public ResponseEntity<List<Map<String, Object>>> getDentists(@PathVariable String locationId) {{
+        List<Map<String, Object>> dentists = List.of(
+                Map.of("id", "20000000-0000-0000-0000-000000000001", "name", "Dr. García", "specialty", "Ortodoncista"),
+                Map.of("id", "20000000-0000-0000-0000-000000000002", "name", "Dra. López", "specialty", "Endodoncista"),
+                Map.of("id", "20000000-0000-0000-0000-000000000003", "name", "Dr. Martínez", "specialty", "Cirujano oral")
+        );
+        return ResponseEntity.ok(dentists);
+    }}
+
+    /** GET /api/booking/locations/{{locationId}}/availability?date=YYYY-MM-DD&dentistId=xxx — slots */
+    @GetMapping("/locations/{{locationId}}/availability")
+    public ResponseEntity<List<Map<String, Object>>> getAvailability(
+            @PathVariable String locationId,
+            @RequestParam(required = false) String date,
+            @RequestParam(required = false) String dentistId) {{
+        String[] times = {{"09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00"}};
+        boolean[] avail = {{true, true, false, true, true, false, true, true}};
+        List<Map<String, Object>> slots = new ArrayList<>();
+        for (int i = 0; i < times.length; i++) {{
+            slots.add(Map.of("time", times[i], "available", avail[i]));
+        }}
+        return ResponseEntity.ok(slots);
+    }}
+
+    /** POST /api/booking/request — patient submits booking request */
+    @PostMapping("/request")
+    public ResponseEntity<BookingConfirmation> requestBooking(@RequestBody BookingRequest req) {{
+        String confirmCode = "BOOK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        String locationName = resolveLocationName(req.locationId());
+        String dentistName = resolveDentistName(req.dentistId());
+        BookingConfirmation confirmation = new BookingConfirmation(
+                confirmCode,
+                req.patientName(),
+                req.date(),
+                req.time(),
+                locationName,
+                dentistName,
+                req.procedure() != null ? req.procedure() : "Consulta general",
+                "PENDING"
+        );
+        BOOKINGS.put(confirmCode, confirmation);
+        return ResponseEntity.ok(confirmation);
+    }}
+
+    /** GET /api/booking/confirm/{{confirmCode}} — confirm booking (returns booking details) */
+    @GetMapping("/confirm/{{confirmCode}}")
+    public ResponseEntity<BookingConfirmation> confirmBooking(@PathVariable String confirmCode) {{
+        BookingConfirmation booking = BOOKINGS.get(confirmCode);
+        if (booking == null) {{
+            return ResponseEntity.notFound().build();
+        }}
+        if ("PENDING".equals(booking.status())) {{
+            BookingConfirmation confirmed = new BookingConfirmation(
+                    booking.confirmCode(), booking.patientName(), booking.date(), booking.time(),
+                    booking.locationName(), booking.dentistName(), booking.procedure(), "CONFIRMED"
+            );
+            BOOKINGS.put(confirmCode, confirmed);
+            return ResponseEntity.ok(confirmed);
+        }}
+        return ResponseEntity.ok(booking);
+    }}
+
+    private String resolveLocationName(UUID locationId) {{
+        if (locationId == null) return "Clínica Central";
+        String sid = locationId.toString();
+        if (sid.endsWith("0001")) return "Clínica Central";
+        if (sid.endsWith("0002")) return "Clínica Norte";
+        if (sid.endsWith("0003")) return "Clínica Sur";
+        return "Clínica Central";
+    }}
+
+    private String resolveDentistName(UUID dentistId) {{
+        if (dentistId == null) return "Dr. García";
+        String sid = dentistId.toString();
+        if (sid.endsWith("0001")) return "Dr. García";
+        if (sid.endsWith("0002")) return "Dra. López";
+        if (sid.endsWith("0003")) return "Dr. Martínez";
+        return "Dr. García";
+    }}
+
+    // ---------------------------------------------------------------
+    // Records
+    // ---------------------------------------------------------------
+
+    public record BookingRequest(
+            String patientName,
+            String patientPhone,
+            String patientEmail,
+            UUID locationId,
+            UUID dentistId,
+            String date,
+            String time,
+            String procedure,
+            String notes
+    ) {{}}
+
+    public record BookingConfirmation(
+            String confirmCode,
+            String patientName,
+            String date,
+            String time,
+            String locationName,
+            String dentistName,
+            String procedure,
+            String status
+    ) {{}}
+}}
+"""
+
+    # ------------------------------------------------------------------ #
+    #  Round 31 – Communications / Patient Messaging                       #
+    # ------------------------------------------------------------------ #
+    def generate_communication_controller(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/communications")
+@Tag(name = "Communications", description = "Patient messaging via email and SMS")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class CommunicationController {{
+
+    // ------------------------------------------------------------------ //
+    //  In-memory message log                                               //
+    // ------------------------------------------------------------------ //
+    private static final Map<UUID, MessageResponse> MESSAGE_STORE = new ConcurrentHashMap<>();
+    private static final Map<UUID, List<UUID>> PATIENT_INDEX      = new ConcurrentHashMap<>();
+
+    // ------------------------------------------------------------------ //
+    //  Pre-defined message templates                                       //
+    // ------------------------------------------------------------------ //
+    private static final List<MessageTemplate> TEMPLATES = List.of(
+        new MessageTemplate("REMINDER_24H", "Recordatorio de cita",
+            "EMAIL",
+            "Recordatorio: su cita es mañana",
+            "Estimado/a paciente, le recordamos que tiene una cita programada para mañana. " +
+            "Por favor, llegue 10 minutos antes. Si necesita cancelar, contáctenos con antelación. Gracias."),
+        new MessageTemplate("REMINDER_1H", "Recordatorio 1 hora",
+            "SMS",
+            "Cita en 1 hora",
+            "Recordatorio: su cita dental es en 1 hora. Dirección: Clínica Dental, C/ Principal 1. Gracias."),
+        new MessageTemplate("WELCOME", "Bienvenido a la clínica",
+            "EMAIL",
+            "Bienvenido/a a nuestra clínica dental",
+            "Estimado/a paciente, es un placer darle la bienvenida a nuestra clínica dental. " +
+            "Estamos aquí para cuidar su salud bucal con el mejor servicio. " +
+            "No dude en contactarnos para cualquier consulta."),
+        new MessageTemplate("BIRTHDAY", "Feliz cumpleaños",
+            "EMAIL",
+            "¡Feliz cumpleaños de parte de nuestra clínica!",
+            "Estimado/a paciente, hoy es su día especial y queremos felicitarle. " +
+            "Como regalo de cumpleaños, le ofrecemos un 10% de descuento en su próxima visita. ¡Disfrute su día!"),
+        new MessageTemplate("REVIEW_REQUEST", "¿Cómo fue su visita?",
+            "EMAIL",
+            "Cuéntenos su experiencia en la clínica",
+            "Estimado/a paciente, esperamos que su visita reciente haya sido satisfactoria. " +
+            "Nos encantaría conocer su opinión para seguir mejorando. " +
+            "Por favor, dedique un momento a valorar nuestra atención. ¡Gracias!"),
+        new MessageTemplate("PAYMENT_REMINDER", "Recordatorio de pago pendiente",
+            "EMAIL",
+            "Tiene un pago pendiente en nuestra clínica",
+            "Estimado/a paciente, le informamos que tiene un saldo pendiente con nuestra clínica. " +
+            "Por favor, realice el pago a la mayor brevedad posible. " +
+            "Si ya realizó el pago, ignore este mensaje. Gracias.")
+    );
+
+    // ------------------------------------------------------------------ //
+    //  Demo seed data (8 messages)                                         //
+    // ------------------------------------------------------------------ //
+    static {{
+        String[][] seeds = {{
+            {{"11111111-1111-1111-1111-111111111111", "Ana García",     "EMAIL", "Recordatorio: su cita es mañana",                  "SENT",      "2024-01-15T10:00:00"}},
+            {{"11111111-1111-1111-1111-111111111111", "Ana García",     "SMS",   "Cita en 1 hora",                                   "SENT",      "2024-01-15T11:00:00"}},
+            {{"22222222-2222-2222-2222-222222222222", "Carlos López",   "EMAIL", "Bienvenido/a a nuestra clínica dental",             "SENT",      "2024-01-10T09:00:00"}},
+            {{"22222222-2222-2222-2222-222222222222", "Carlos López",   "EMAIL", "¡Feliz cumpleaños de parte de nuestra clínica!",    "SENT",      "2024-01-20T08:00:00"}},
+            {{"33333333-3333-3333-3333-333333333333", "María Sánchez",  "EMAIL", "Cuéntenos su experiencia en la clínica",            "SENT",      "2024-01-18T14:00:00"}},
+            {{"33333333-3333-3333-3333-333333333333", "María Sánchez",  "EMAIL", "Tiene un pago pendiente en nuestra clínica",        "FAILED",    "2024-01-19T09:30:00"}},
+            {{"44444444-4444-4444-4444-444444444444", "Pedro Martín",   "SMS",   "Cita en 1 hora",                                   "SCHEDULED", "2024-02-01T10:00:00"}},
+            {{"55555555-5555-5555-5555-555555555555", "Lucía Fernández","EMAIL", "Recordatorio: su cita es mañana",                  "PENDING",   "2024-02-05T08:00:00"}},
+        }};
+        for (String[] s : seeds) {{
+            UUID id  = UUID.randomUUID();
+            UUID pid = UUID.fromString(s[0]);
+            MessageResponse msg = new MessageResponse(
+                id, pid, s[1], s[2], s[3],
+                "Cuerpo del mensaje de demostración.", s[4], s[5], null
+            );
+            MESSAGE_STORE.put(id, msg);
+            PATIENT_INDEX.computeIfAbsent(pid, k -> new ArrayList<>()).add(id);
+        }}
+    }}
+
+    // ------------------------------------------------------------------ //
+    //  POST /api/communications/send                                       //
+    // ------------------------------------------------------------------ //
+    @PostMapping("/send")
+    @Operation(summary = "Enviar mensaje a paciente (email o SMS)")
+    public ResponseEntity<MessageResponse> send(@RequestBody MessageRequest req) {{
+        UUID   id     = UUID.randomUUID();
+        String status = (req.scheduledAt() != null && !req.scheduledAt().isBlank()) ? "SCHEDULED" : "SENT";
+        String sentAt = "SENT".equals(status)
+            ? LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            : null;
+        MessageResponse resp = new MessageResponse(
+            id, req.patientId(),
+            "Paciente " + req.patientId().toString().substring(0, 8),
+            req.channel(), req.subject(), req.body(),
+            status, sentAt, req.scheduledAt()
+        );
+        MESSAGE_STORE.put(id, resp);
+        PATIENT_INDEX.computeIfAbsent(req.patientId(), k -> new ArrayList<>()).add(id);
+        return ResponseEntity.ok(resp);
+    }}
+
+    // ------------------------------------------------------------------ //
+    //  GET /api/communications/patient/{{patientId}}                        //
+    // ------------------------------------------------------------------ //
+    @GetMapping("/patient/{{patientId}}")
+    @Operation(summary = "Historial de mensajes de un paciente")
+    public ResponseEntity<List<MessageResponse>> getHistory(@PathVariable UUID patientId) {{
+        List<UUID> ids = PATIENT_INDEX.getOrDefault(patientId, Collections.emptyList());
+        List<MessageResponse> history = ids.stream()
+            .map(MESSAGE_STORE::get)
+            .filter(Objects::nonNull)
+            .sorted(Comparator.comparing((MessageResponse m) -> m.sentAt() != null ? m.sentAt() : "").reversed())
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(history);
+    }}
+
+    // ------------------------------------------------------------------ //
+    //  GET /api/communications/templates                                   //
+    // ------------------------------------------------------------------ //
+    @GetMapping("/templates")
+    @Operation(summary = "Listar plantillas de mensajes disponibles")
+    public ResponseEntity<List<MessageTemplate>> getTemplates() {{
+        return ResponseEntity.ok(TEMPLATES);
+    }}
+
+    // ------------------------------------------------------------------ //
+    //  POST /api/communications/bulk                                       //
+    // ------------------------------------------------------------------ //
+    @PostMapping("/bulk")
+    @Operation(summary = "Envío masivo a múltiples pacientes (stub)")
+    public ResponseEntity<BulkResult> bulkSend(@RequestBody BulkRequest req) {{
+        int          sent   = 0;
+        List<String> errors = new ArrayList<>();
+        String       now    = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        for (UUID pid : req.patientIds()) {{
+            try {{
+                UUID id  = UUID.randomUUID();
+                MessageResponse msg = new MessageResponse(
+                    id, pid, "Paciente " + pid.toString().substring(0, 8),
+                    req.channel(), req.subject(), req.body(), "SENT", now, null
+                );
+                MESSAGE_STORE.put(id, msg);
+                PATIENT_INDEX.computeIfAbsent(pid, k -> new ArrayList<>()).add(id);
+                sent++;
+            }} catch (Exception e) {{
+                errors.add(pid + ": " + e.getMessage());
+            }}
+        }}
+        int failed = req.patientIds().size() - sent;
+        return ResponseEntity.ok(new BulkResult(req.patientIds().size(), sent, failed, errors));
+    }}
+
+    // ------------------------------------------------------------------ //
+    //  Records                                                             //
+    // ------------------------------------------------------------------ //
+    public record MessageRequest(
+        UUID   patientId,
+        String channel,
+        String subject,
+        String body,
+        String scheduledAt
+    ) {{}}
+
+    public record MessageResponse(
+        UUID   id,
+        UUID   patientId,
+        String patientName,
+        String channel,
+        String subject,
+        String body,
+        String status,
+        String sentAt,
+        String scheduledAt
+    ) {{}}
+
+    public record MessageTemplate(
+        String code,
+        String name,
+        String channel,
+        String subject,
+        String body
+    ) {{}}
+
+    public record BulkRequest(
+        List<UUID> patientIds,
+        String     channel,
+        String     subject,
+        String     body
+    ) {{}}
+
+    public record BulkResult(
+        int          total,
+        int          sent,
+        int          failed,
+        List<String> errors
+    ) {{}}
+}}
+"""
+
+    # ------------------------------------------------------------------ #
+    #  Round 32 - Clinical Photos Gallery                                  #
+    # ------------------------------------------------------------------ #
+    def generate_clinical_photos_controller(self, base_package: str) -> str:
+        """
+        Generates ClinicalPhotosController.java - clinical photo gallery with before/after comparator.
+        Round 32.
+        """
+        return f"""\
+package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * REST controller for clinical photo gallery (before/after, X-rays, intraoral).
+ * Round 32 - in-memory implementation. Wire with real storage in production.
+ */
+@RestController
+@RequestMapping("/api/clinical-photos")
+@Tag(name = "Clinical Photos", description = "Patient clinical photo gallery")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+@CrossOrigin(origins = "*")
+public class ClinicalPhotosController {{
+
+    private final ConcurrentHashMap<UUID, List<ClinicalPhoto>> store = new ConcurrentHashMap<>();
+
+    private static final UUID DEMO_PATIENT_1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID DEMO_PATIENT_2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+
+    public ClinicalPhotosController() {{
+        store.put(DEMO_PATIENT_1, buildDemoPhotos(DEMO_PATIENT_1));
+        store.put(DEMO_PATIENT_2, buildDemoPhotos(DEMO_PATIENT_2));
+    }}
+
+    private List<ClinicalPhoto> buildDemoPhotos(UUID patientId) {{
+        List<ClinicalPhoto> photos = new ArrayList<>();
+        String[][] demo = {{
+            {{"BEFORE",    "11", "Estado inicial incisivo central",    "/api/clinical-photos/demo/1.jpg", "INITIAL"}},
+            {{"AFTER",     "11", "Post tratamiento incisivo central",  "/api/clinical-photos/demo/2.jpg", "FINAL"}},
+            {{"XRAY",      "36", "Radiografia molar inferior",         "/api/clinical-photos/demo/3.jpg", "PROGRESS"}},
+            {{"PANORAMIC", "",   "Ortopantomografia completa",         "/api/clinical-photos/demo/4.jpg", "INITIAL"}},
+            {{"INTRAORAL", "21", "Vista intraoral lateral",            "/api/clinical-photos/demo/5.jpg", "PROGRESS"}},
+            {{"OTHER",     "46", "Foto de seguimiento",                "/api/clinical-photos/demo/6.jpg", "EMERGENCY"}}
+        }};
+        DateTimeFormatter fmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+        for (int i = 0; i < demo.length; i++) {{
+            photos.add(new ClinicalPhoto(
+                UUID.randomUUID(),
+                patientId,
+                demo[i][0],
+                demo[i][1],
+                demo[i][2],
+                demo[i][3],
+                LocalDateTime.now().minusDays(30L - (long) i * 5).format(fmt),
+                demo[i][4]
+            ));
+        }}
+        return photos;
+    }}
+
+    /** GET /api/clinical-photos/patient/{{patientId}} */
+    @GetMapping("/patient/{{patientId}}")
+    public ResponseEntity<List<ClinicalPhoto>> listByPatient(@PathVariable UUID patientId) {{
+        return ResponseEntity.ok(store.getOrDefault(patientId, Collections.emptyList()));
+    }}
+
+    /** POST /api/clinical-photos/patient/{{patientId}} - multipart stub */
+    @PostMapping("/patient/{{patientId}}")
+    public ResponseEntity<ClinicalPhoto> uploadPhoto(
+            @PathVariable UUID patientId,
+            @RequestPart("metadata") PhotoUploadRequest request,
+            @RequestPart(value = "file", required = false) MultipartFile file) {{
+        String url = (file != null && !file.isEmpty())
+            ? "/api/clinical-photos/uploads/" + UUID.randomUUID() + "_" + file.getOriginalFilename()
+            : "/api/clinical-photos/demo/placeholder.jpg";
+        ClinicalPhoto photo = new ClinicalPhoto(
+            UUID.randomUUID(), patientId,
+            request.type(), request.tooth(), request.description(),
+            url,
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            request.category()
+        );
+        store.computeIfAbsent(patientId, k -> new ArrayList<>()).add(photo);
+        return ResponseEntity.ok(photo);
+    }}
+
+    /** DELETE /api/clinical-photos/{{photoId}} */
+    @DeleteMapping("/{{photoId}}")
+    public ResponseEntity<Void> deletePhoto(@PathVariable UUID photoId) {{
+        store.values().forEach(list -> list.removeIf(p -> p.id().equals(photoId)));
+        return ResponseEntity.noContent().build();
+    }}
+
+    /** GET /api/clinical-photos/patient/{{patientId}}/compare - before/after pairs */
+    @GetMapping("/patient/{{patientId}}/compare")
+    public ResponseEntity<List<BeforeAfterPair>> comparePhotos(@PathVariable UUID patientId) {{
+        List<ClinicalPhoto> photos = store.getOrDefault(patientId, Collections.emptyList());
+        Map<String, ClinicalPhoto> beforeMap = photos.stream()
+            .filter(p -> "BEFORE".equals(p.type()) && p.tooth() != null && !p.tooth().isBlank())
+            .collect(Collectors.toMap(ClinicalPhoto::tooth, p -> p, (a, b) -> a));
+        Map<String, ClinicalPhoto> afterMap = photos.stream()
+            .filter(p -> "AFTER".equals(p.type()) && p.tooth() != null && !p.tooth().isBlank())
+            .collect(Collectors.toMap(ClinicalPhoto::tooth, p -> p, (a, b) -> a));
+        List<BeforeAfterPair> pairs = beforeMap.entrySet().stream()
+            .filter(e -> afterMap.containsKey(e.getKey()))
+            .map(e -> new BeforeAfterPair(
+                e.getValue(), afterMap.get(e.getKey()),
+                e.getKey(), "Tratamiento diente " + e.getKey()))
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(pairs);
+    }}
+
+    public record ClinicalPhoto(
+        UUID id, UUID patientId,
+        String type, String tooth, String description,
+        String url, String takenAt, String category
+    ) {{}}
+
+    public record PhotoUploadRequest(
+        String type, String tooth, String description, String category
+    ) {{}}
+
+    public record BeforeAfterPair(
+        ClinicalPhoto before, ClinicalPhoto after, String tooth, String procedure
+    ) {{}}
+}}
+"""

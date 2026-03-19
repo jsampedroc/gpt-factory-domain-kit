@@ -631,6 +631,135 @@ public class NotificationEventListener {{
 }}
 """
 
+    def generate_integration_tests(self, base_package: str, modules: list[dict], project_slug: str) -> dict[str, str]:
+        """
+        Generates Testcontainers integration tests for each module.
+        Returns a dict of relative test source paths -> file content.
+        modules: list of dicts with keys 'name' (entity name)
+        """
+        pkg_path = base_package.replace(".", "/")
+        files = {}
+
+        # AbstractIntegrationTest base class
+        files[f"src/test/java/{pkg_path}/AbstractIntegrationTest.java"] = f'''package {base_package};
+
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+/**
+ * Base class for integration tests.
+ * Starts a real PostgreSQL container via Testcontainers — no H2, no mocks.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
+@Testcontainers
+public abstract class AbstractIntegrationTest {{
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:15-alpine")
+                    .withDatabaseName("{project_slug}_test")
+                    .withUsername("test")
+                    .withPassword("test");
+
+    @DynamicPropertySource
+    static void overrideProperties(DynamicPropertyRegistry registry) {{
+        registry.add("spring.datasource.url",      POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri",
+                () -> "http://localhost:9999/realms/test");
+        registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
+                () -> "http://localhost:9999/realms/test/protocol/openid-connect/certs");
+        registry.add("spring.mail.host", () -> "localhost");
+        registry.add("spring.mail.port", () -> "3025");
+        registry.add("app.notifications.enabled", () -> "false");
+    }}
+}}
+'''
+
+        # Per-entity API integration tests
+        for mod in modules:
+            entity = mod["name"]
+            lower = entity.lower()
+            url_path = lower + "s"
+            mod_pkg = f"{base_package}.{lower}"
+
+            files[f"src/test/java/{pkg_path}/{lower}/{entity}ApiIT.java"] = f'''package {mod_pkg};
+
+import {base_package}.AbstractIntegrationTest;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+class {entity}ApiIT extends AbstractIntegrationTest {{
+
+    @Autowired MockMvc mockMvc;
+
+    @Test
+    void getAll_returnsPageResponse() throws Exception {{
+        mockMvc.perform(get("/{url_path}").with(jwt()).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.page").value(0));
+    }}
+
+    @Test
+    void getById_notFound_returns404() throws Exception {{
+        mockMvc.perform(get("/{url_path}/00000000-0000-0000-0000-000000000000").with(jwt()))
+                .andExpect(status().isNotFound());
+    }}
+
+    @Test
+    void withoutAuth_returns401() throws Exception {{
+        mockMvc.perform(get("/{url_path}")).andExpect(status().isUnauthorized());
+    }}
+
+    @Test
+    void delete_notFound_returns404() throws Exception {{
+        mockMvc.perform(delete("/{url_path}/00000000-0000-0000-0000-000000000000").with(jwt()))
+                .andExpect(status().isNoContent()); // deactivate is idempotent
+    }}
+}}
+'''
+
+        # Dashboard IT
+        files[f"src/test/java/{pkg_path}/dashboard/DashboardApiIT.java"] = f'''package {base_package}.dashboard;
+
+import {base_package}.AbstractIntegrationTest;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+class DashboardApiIT extends AbstractIntegrationTest {{
+
+    @Autowired MockMvc mockMvc;
+
+    @Test
+    void getDashboard_returnsAllCounters() throws Exception {{
+        mockMvc.perform(get("/dashboard").with(jwt()).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+{chr(10).join(f'                .andExpect(jsonPath("$.total{mod["name"]}s").isNumber())' for mod in modules)};
+    }}
+}}
+'''
+        return files
+
     def generate_global_exception_handler(self, package_name: str) -> str:
         """@ControllerAdvice that returns structured JSON errors."""
         return f"""package {package_name};

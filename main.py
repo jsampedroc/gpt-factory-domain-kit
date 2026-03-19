@@ -1200,6 +1200,16 @@ public class SecurityConfig {{
                 files[f"backend/src/main/java/{pkg_path}/config/NotificationEventListener.java"] = notification_listener
             except Exception as e:
                 f.log(f"⚠️ Domain events generation error: {e}")
+
+        # ---- Integration tests (Testcontainers) ----
+        if dashboard_modules:
+            try:
+                test_files = tg.generate_integration_tests(pkg, dashboard_modules, f.project_slug)
+                for rel, content in test_files.items():
+                    files[f"backend/{rel}"] = content
+            except Exception as e:
+                f.log(f"⚠️ Integration tests generation error: {e}")
+
         if v1_sql:
             files["backend/src/main/resources/db/migration/V1__create_tables.sql"] = v1_sql
         if v2_sql:
@@ -2633,6 +2643,65 @@ class SoftwareFactory:
             "    <dependency>\n"
             "      <groupId>org.springframework.boot</groupId>\n"
             "      <artifactId>spring-boot-starter-security</artifactId>\n"
+            "    </dependency>\n"
+            "    <!-- OpenAPI / Swagger UI -->\n"
+            "    <dependency>\n"
+            "      <groupId>org.springdoc</groupId>\n"
+            "      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>\n"
+            "      <version>2.3.0</version>\n"
+            "    </dependency>\n"
+            "    <!-- Actuator -->\n"
+            "    <dependency>\n"
+            "      <groupId>org.springframework.boot</groupId>\n"
+            "      <artifactId>spring-boot-starter-actuator</artifactId>\n"
+            "    </dependency>\n"
+            "    <!-- Caching: Caffeine -->\n"
+            "    <dependency>\n"
+            "      <groupId>org.springframework.boot</groupId>\n"
+            "      <artifactId>spring-boot-starter-cache</artifactId>\n"
+            "    </dependency>\n"
+            "    <dependency>\n"
+            "      <groupId>com.github.ben-manes.caffeine</groupId>\n"
+            "      <artifactId>caffeine</artifactId>\n"
+            "    </dependency>\n"
+            "    <!-- Export: Apache POI (Excel) -->\n"
+            "    <dependency>\n"
+            "      <groupId>org.apache.poi</groupId>\n"
+            "      <artifactId>poi-ooxml</artifactId>\n"
+            "      <version>5.2.5</version>\n"
+            "    </dependency>\n"
+            "    <!-- Export: OpenPDF (PDF) -->\n"
+            "    <dependency>\n"
+            "      <groupId>com.github.librepdf</groupId>\n"
+            "      <artifactId>openpdf</artifactId>\n"
+            "      <version>1.3.30</version>\n"
+            "    </dependency>\n"
+            "    <!-- Rate limiting: Bucket4j -->\n"
+            "    <dependency>\n"
+            "      <groupId>com.bucket4j</groupId>\n"
+            "      <artifactId>bucket4j-core</artifactId>\n"
+            "      <version>8.7.0</version>\n"
+            "    </dependency>\n"
+            "    <!-- Testing: Spring Boot Test + Testcontainers + PostgreSQL -->\n"
+            "    <dependency>\n"
+            "      <groupId>org.springframework.boot</groupId>\n"
+            "      <artifactId>spring-boot-starter-test</artifactId>\n"
+            "      <scope>test</scope>\n"
+            "    </dependency>\n"
+            "    <dependency>\n"
+            "      <groupId>org.springframework.security</groupId>\n"
+            "      <artifactId>spring-security-test</artifactId>\n"
+            "      <scope>test</scope>\n"
+            "    </dependency>\n"
+            "    <dependency>\n"
+            "      <groupId>org.testcontainers</groupId>\n"
+            "      <artifactId>junit-jupiter</artifactId>\n"
+            "      <scope>test</scope>\n"
+            "    </dependency>\n"
+            "    <dependency>\n"
+            "      <groupId>org.testcontainers</groupId>\n"
+            "      <artifactId>postgresql</artifactId>\n"
+            "      <scope>test</scope>\n"
             "    </dependency>\n"
             "  </dependencies>\n\n"
             "  <build>\n"

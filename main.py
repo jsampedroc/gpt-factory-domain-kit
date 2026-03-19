@@ -1157,6 +1157,8 @@ public class SecurityConfig {{
         base_jpa_entity_java = tg.generate_base_jpa_entity(shared_pkg)
         audit_config_java = tg.generate_audit_config(config_pkg, pkg)
         exception_handler_java = tg.generate_global_exception_handler(config_pkg)
+        async_config_java = tg.generate_async_config(config_pkg)
+        domain_event_interface = tg.generate_domain_event_interface(pkg)
 
         # ---- Write all files ----
         pkg_path = pkg.replace(".", "/")
@@ -1169,7 +1171,9 @@ public class SecurityConfig {{
             f"backend/src/main/java/{pkg_path}/shared/PageResult.java": page_result_java,
             f"backend/src/main/java/{pkg_path}/shared/PageResponse.java": page_response_java,
             f"backend/src/main/java/{pkg_path}/shared/BaseJpaEntity.java": base_jpa_entity_java,
+            f"backend/src/main/java/{pkg_path}/shared/DomainEvent.java": domain_event_interface,
             f"backend/src/main/java/{pkg_path}/config/AuditConfig.java": audit_config_java,
+            f"backend/src/main/java/{pkg_path}/config/AsyncConfig.java": async_config_java,
             f"backend/src/main/java/{pkg_path}/config/GlobalExceptionHandler.java": exception_handler_java,
         }
 
@@ -1181,6 +1185,17 @@ public class SecurityConfig {{
                     files[f"backend/src/main/java/{pkg_path}/{rel}"] = content
             except Exception as e:
                 f.log(f"⚠️ Dashboard generation error: {e}")
+
+        # ---- Domain events + notification listener ----
+        if dashboard_modules:
+            try:
+                event_files = tg.generate_domain_events(pkg, dashboard_modules)
+                for rel, content in event_files.items():
+                    files[rel] = content
+                notification_listener = tg.generate_notification_listener(pkg, dashboard_modules)
+                files[f"backend/src/main/java/{pkg_path}/config/NotificationEventListener.java"] = notification_listener
+            except Exception as e:
+                f.log(f"⚠️ Domain events generation error: {e}")
         if v1_sql:
             files["backend/src/main/resources/db/migration/V1__create_tables.sql"] = v1_sql
         if v2_sql:
@@ -1282,6 +1297,7 @@ public class SecurityConfig {{
             "frontend/src/auth/keycloak.ts": gen.generate_keycloak_ts(f.project_slug),
             "frontend/src/auth/AuthProvider.tsx": gen.generate_auth_provider_tsx(),
             "frontend/src/api/apiFetch.ts": gen.generate_api_fetch_ts(),
+            "frontend/src/context/ToastContext.tsx": gen.generate_toast_context_tsx(),
             "frontend/src/types/PageResponse.ts": gen.generate_page_response_type(),
             "frontend/src/types/DashboardStats.ts": gen.generate_dashboard_types(entities),
             "frontend/src/api/dashboardApi.ts": gen.generate_dashboard_api(),
@@ -2584,6 +2600,10 @@ class SoftwareFactory:
             "    <dependency>\n"
             "      <groupId>org.springframework.boot</groupId>\n"
             "      <artifactId>spring-boot-starter-validation</artifactId>\n"
+            "    </dependency>\n"
+            "    <dependency>\n"
+            "      <groupId>org.springframework.boot</groupId>\n"
+            "      <artifactId>spring-boot-starter-mail</artifactId>\n"
             "    </dependency>\n"
             "    <dependency>\n"
             "      <groupId>org.mapstruct</groupId>\n"

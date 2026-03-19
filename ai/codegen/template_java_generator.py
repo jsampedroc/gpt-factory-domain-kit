@@ -390,6 +390,163 @@ public class DashboardController {{
 
         return files
 
+    def generate_async_config(self, package_name: str) -> str:
+        """@EnableAsync configuration class."""
+        return f"""package {package_name};
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableAsync;
+
+/**
+ * Enables asynchronous event listeners (e.g. email notifications).
+ * Events are processed in a separate thread to avoid blocking the main request.
+ */
+@Configuration
+@EnableAsync
+public class AsyncConfig {{
+}}
+"""
+
+    def generate_domain_event_interface(self, base_package: str) -> str:
+        """Base DomainEvent interface in shared package."""
+        return f"""package {base_package}.shared;
+
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * Marker interface for all domain events.
+ * Events are immutable records published after a state change.
+ */
+public interface DomainEvent {{
+    UUID eventId();
+    Instant occurredOn();
+    String eventType();
+}}
+"""
+
+    def generate_domain_events(self, base_package: str, modules: list[dict]) -> dict[str, str]:
+        """
+        Generates domain event records for each module.
+        Returns a dict of relative paths -> file content.
+        modules: list of dicts with keys 'name' (entity name), 'fields' (list of field dicts)
+        """
+        files = {}
+        for mod in modules:
+            entity = mod["name"]
+            lower_mod = entity.lower()
+            pkg = f"{base_package}.{lower_mod}.domain.event"
+
+            # RegisterEvent: entity registered/created
+            event_name = f"{entity}RegisteredEvent"
+            # Collect relevant fields (excluding id)
+            relevant = [f for f in mod.get("fields", []) if f.get("name") not in ("id",)
+                       and f.get("type", "String") not in ("LocalDate", "LocalDateTime", "Instant")
+                       and not str(f.get("type", "")).startswith("List")][:3]
+
+            imports = {"java.time.Instant", "java.util.UUID", f"{base_package}.shared.DomainEvent"}
+            extra_fields = ""
+            for fld in relevant:
+                t = fld.get("type", "String")
+                n = fld.get("name", "value")
+                if t in ("String", "int", "long", "double", "boolean"):
+                    extra_fields += f"        {t} {n},\n"
+
+            rel_path = f"backend/src/main/java/{base_package.replace('.', '/')}/{lower_mod}/domain/event/{event_name}.java"
+            imports_str = "".join(f"import {i};\n" for i in sorted(imports))
+
+            files[rel_path] = f"""package {pkg};
+
+{imports_str}
+public record {event_name}(
+        UUID eventId,
+        Instant occurredOn,
+        UUID entityId
+) implements DomainEvent {{
+    public static {event_name} of(UUID entityId) {{
+        return new {event_name}(UUID.randomUUID(), Instant.now(), entityId);
+    }}
+    @Override public String eventType() {{ return "{lower_mod}.registered"; }}
+}}
+"""
+        return files
+
+    def generate_notification_listener(self, base_package: str, modules: list[dict]) -> str:
+        """Generates a Spring event listener that sends email notifications for all domain events."""
+        pkg = f"{base_package}.config"
+
+        event_imports = "\n".join(
+            f"import {base_package}.{mod['name'].lower()}.domain.event.{mod['name']}RegisteredEvent;"
+            for mod in modules
+        )
+
+        handlers = "\n\n".join(
+            f"""    @Async
+    @EventListener
+    public void on{mod['name']}Registered({mod['name']}RegisteredEvent event) {{
+        log.info("[EVENT] {{}} - {mod['name']} registered: id={{}}", event.eventType(), event.entityId());
+        if (!enabled) return;
+        sendEmail(adminEmail,
+                "Nuevo {mod['name'].lower()} registrado",
+                "Se ha registrado un nuevo {mod['name'].lower()} con ID: " + event.entityId());
+    }}"""
+            for mod in modules
+        )
+
+        return f"""package {pkg};
+
+{event_imports}
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.event.EventListener;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Component;
+
+/**
+ * Listens to domain events and sends email notifications.
+ * Uses MailHog in development (configure spring.mail.* in application.properties).
+ */
+@Component
+public class NotificationEventListener {{
+
+    private static final Logger log = LoggerFactory.getLogger(NotificationEventListener.class);
+
+    private final JavaMailSender mailSender;
+
+    @Value("${{app.notifications.from:noreply@app.com}}")
+    private String from;
+
+    @Value("${{app.notifications.admin:admin@app.com}}")
+    private String adminEmail;
+
+    @Value("${{app.notifications.enabled:true}}")
+    private boolean enabled;
+
+    public NotificationEventListener(JavaMailSender mailSender) {{
+        this.mailSender = mailSender;
+    }}
+
+{handlers}
+
+    private void sendEmail(String to, String subject, String body) {{
+        try {{
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setFrom(from);
+            msg.setTo(to);
+            msg.setSubject(subject);
+            msg.setText(body);
+            mailSender.send(msg);
+            log.debug("Email sent to {{}} - Subject: {{}}", to, subject);
+        }} catch (Exception e) {{
+            log.error("Failed to send email to {{}}: {{}}", to, e.getMessage());
+        }}
+    }}
+}}
+"""
+
     def generate_global_exception_handler(self, package_name: str) -> str:
         """@ControllerAdvice that returns structured JSON errors."""
         return f"""package {package_name};

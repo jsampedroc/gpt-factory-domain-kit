@@ -181,6 +181,7 @@ export async function delete{entity}(id: string): Promise<void> {{
 import type {{ {entity} }} from '../../types/{entity}';
 import type {{ PageResponse }} from '../../types/PageResponse';
 import {{ getAll{entity}s, delete{entity} }} from '../../api/{lower}Api';
+import {{ useToast }} from '../../context/ToastContext';
 
 interface Props {{
   onEdit: (item: {entity}) => void;
@@ -195,6 +196,7 @@ const thStyle: React.CSSProperties = {{
 const tdStyle: React.CSSProperties = {{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }};
 
 export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
+  const {{ showToast }} = useToast();
   const [page, setPage] = useState<PageResponse<{entity}> | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [search, setSearch] = useState('');
@@ -214,6 +216,7 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
   const handleDelete = async (id: string) => {{
     if (!window.confirm('¿Eliminar este {lower}?')) return;
     await delete{entity}(id);
+    showToast('{entity} eliminado correctamente', 'info');
     load(currentPage, search);
   }};
 
@@ -371,6 +374,7 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
         return f"""import {{ useState }} from 'react';
 import type {{ {entity} }} from '../../types/{entity}';
 import {{ create{entity}, update{entity} }} from '../../api/{lower}Api';
+import {{ useToast }} from '../../context/ToastContext';
 
 interface Props {{
   item?: {entity} | null;
@@ -379,6 +383,7 @@ interface Props {{
 }}
 
 export default function {entity}Form({{ item, onSaved, onCancel }}: Props) {{
+  const {{ showToast }} = useToast();
   const [form, setForm] = useState({{ {state_init} }});
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -390,8 +395,10 @@ export default function {entity}Form({{ item, onSaved, onCancel }}: Props) {{
     try {{
       if (item?.id) {{
         await update{entity}(item.id, form as Partial<{entity}>);
+        showToast('{entity} actualizado correctamente');
       }} else {{
         await create{entity}(form as Omit<{entity}, 'id'>);
+        showToast('{entity} creado correctamente');
       }}
       onSaved();
     }} catch (err: unknown) {{
@@ -568,6 +575,7 @@ export default defineConfig({
         return """import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthProvider';
+import { ToastProvider } from './context/ToastContext';
 import App from './App';
 import './index.css';
 
@@ -576,10 +584,103 @@ import './index.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
     <AuthProvider>
-      <App />
+      <ToastProvider>
+        <App />
+      </ToastProvider>
     </AuthProvider>
   </BrowserRouter>
 );
+"""
+
+    def generate_toast_context_tsx(self) -> str:
+        return """import { createContext, useCallback, useContext, useState } from 'react';
+
+export type ToastType = 'success' | 'error' | 'info';
+
+interface Toast {
+  id: number;
+  message: string;
+  type: ToastType;
+}
+
+interface ToastContextValue {
+  toasts: Toast[];
+  showToast: (message: string, type?: ToastType) => void;
+  dismiss: (id: number) => void;
+}
+
+const ToastContext = createContext<ToastContextValue | null>(null);
+
+let nextId = 1;
+
+export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const dismiss = useCallback((id: number) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const showToast = useCallback((message: string, type: ToastType = 'success') => {
+    const id = nextId++;
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => dismiss(id), 4000);
+  }, [dismiss]);
+
+  return (
+    <ToastContext.Provider value={{ toasts, showToast, dismiss }}>
+      {children}
+      <ToastContainer toasts={toasts} dismiss={dismiss} />
+    </ToastContext.Provider>
+  );
+}
+
+export function useToast() {
+  const ctx = useContext(ToastContext);
+  if (!ctx) throw new Error('useToast must be inside ToastProvider');
+  return ctx;
+}
+
+const BG: Record<ToastType, string> = {
+  success: '#2e7d32',
+  error: '#c62828',
+  info: '#1565c0',
+};
+
+function ToastContainer({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: number) => void }) {
+  if (!toasts.length) return null;
+  return (
+    <div style={{
+      position: 'fixed',
+      bottom: 24,
+      right: 24,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+      zIndex: 9999,
+    }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          background: BG[t.type],
+          color: '#fff',
+          padding: '12px 20px',
+          borderRadius: 6,
+          boxShadow: '0 4px 12px rgba(0,0,0,.25)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          minWidth: 240,
+          maxWidth: 400,
+        }}>
+          <span style={{ flex: 1 }}>{t.message}</span>
+          <button
+            onClick={() => dismiss(t.id)}
+            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
+          >×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
 """
 
     def generate_index_css(self) -> str:

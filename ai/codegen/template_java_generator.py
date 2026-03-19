@@ -474,6 +474,100 @@ public class OpenApiConfig {{
 }}
 """
 
+    def generate_messages_properties(self, locale: str = "es") -> str:
+        """
+        Generates Spring MessageSource messages file for the given locale.
+        Used to localize validation error messages and API responses.
+        locale: 'es' (default) or 'en'
+        """
+        if locale == "en":
+            return (
+                "# Validation messages (English)\n"
+                "jakarta.validation.constraints.NotBlank.message=This field is required\n"
+                "jakarta.validation.constraints.NotNull.message=This field is required\n"
+                "jakarta.validation.constraints.Size.message=Must be between {min} and {max} characters\n"
+                "jakarta.validation.constraints.Past.message=Date must be in the past\n"
+                "jakarta.validation.constraints.FutureOrPresent.message=Date must be today or in the future\n"
+                "jakarta.validation.constraints.Email.message=Invalid email address\n"
+                "jakarta.validation.constraints.Min.message=Value must be at least {value}\n"
+                "jakarta.validation.constraints.Max.message=Value must be at most {value}\n"
+                "jakarta.validation.constraints.Pattern.message=Invalid format\n"
+                "jakarta.validation.constraints.Positive.message=Value must be positive\n"
+                "\n"
+                "# API error messages\n"
+                "error.notFound=Resource not found\n"
+                "error.badRequest=Invalid request\n"
+                "error.unauthorized=Authentication required\n"
+                "error.forbidden=Access denied\n"
+                "error.conflict=Resource already exists\n"
+            )
+        else:
+            return (
+                "# Mensajes de validación (Español)\n"
+                "jakarta.validation.constraints.NotBlank.message=Este campo es obligatorio\n"
+                "jakarta.validation.constraints.NotNull.message=Este campo es obligatorio\n"
+                "jakarta.validation.constraints.Size.message=Debe tener entre {min} y {max} caracteres\n"
+                "jakarta.validation.constraints.Past.message=La fecha debe ser anterior a hoy\n"
+                "jakarta.validation.constraints.FutureOrPresent.message=La fecha debe ser hoy o en el futuro\n"
+                "jakarta.validation.constraints.Email.message=Dirección de correo no válida\n"
+                "jakarta.validation.constraints.Min.message=El valor debe ser al menos {value}\n"
+                "jakarta.validation.constraints.Max.message=El valor debe ser como máximo {value}\n"
+                "jakarta.validation.constraints.Pattern.message=Formato no válido\n"
+                "jakarta.validation.constraints.Positive.message=El valor debe ser positivo\n"
+                "\n"
+                "# Mensajes de error API\n"
+                "error.notFound=Recurso no encontrado\n"
+                "error.badRequest=Solicitud inválida\n"
+                "error.unauthorized=Autenticación requerida\n"
+                "error.forbidden=Acceso denegado\n"
+                "error.conflict=El recurso ya existe\n"
+            )
+
+    def generate_message_source_config(self, package_name: str) -> str:
+        """
+        Generates MessageSourceConfig.java — configures Spring MessageSource
+        to load messages from classpath:messages*.properties with UTF-8 encoding.
+        Supports Accept-Language header via LocaleContextHolder.
+        """
+        return f"""package {package_name};
+
+import org.springframework.context.MessageSource;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.support.ReloadableResourceBundleMessageSource;
+import org.springframework.web.servlet.LocaleResolver;
+import org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver;
+
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Configures Spring MessageSource for i18n.
+ * Loads messages from classpath:messages.properties (ES default) and messages_en.properties.
+ * Uses Accept-Language HTTP header to select the active locale.
+ */
+@Configuration
+public class MessageSourceConfig {{
+
+    @Bean
+    public MessageSource messageSource() {{
+        ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
+        source.setBasename("classpath:messages");
+        source.setDefaultEncoding("UTF-8");
+        source.setUseCodeAsDefaultMessage(true);
+        return source;
+    }}
+
+    @Bean
+    public LocaleResolver localeResolver() {{
+        AcceptHeaderLocaleResolver resolver = new AcceptHeaderLocaleResolver();
+        resolver.setSupportedLocales(List.of(Locale.forLanguageTag("es"), Locale.ENGLISH));
+        resolver.setDefaultLocale(Locale.forLanguageTag("es"));
+        return resolver;
+    }}
+}}
+"""
+
     def generate_async_config(self, package_name: str) -> str:
         """@EnableAsync configuration class."""
         return f"""package {package_name};

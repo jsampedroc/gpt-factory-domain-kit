@@ -579,6 +579,7 @@ export default defineConfig({
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthProvider';
 import { ToastProvider } from './context/ToastContext';
+import { I18nProvider } from './context/I18nContext';
 import App from './App';
 import './index.css';
 
@@ -586,11 +587,13 @@ import './index.css';
 // Future flags suppress React Router v7 upgrade warnings.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-    <AuthProvider>
-      <ToastProvider>
-        <App />
-      </ToastProvider>
-    </AuthProvider>
+    <I18nProvider>
+      <AuthProvider>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </AuthProvider>
+    </I18nProvider>
   </BrowserRouter>
 );
 """
@@ -681,6 +684,166 @@ function ToastContainer({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: nu
           >×</button>
         </div>
       ))}
+    </div>
+  );
+}
+"""
+
+    def generate_i18n_context_tsx(self, entities: list[str] | None = None) -> str:
+        """
+        Generates I18nContext.tsx with ES/EN translations and a useI18n hook.
+        Translations cover common UI strings and entity names if provided.
+        """
+        entity_es = ""
+        entity_en = ""
+        if entities:
+            for e in entities:
+                entity_es += f"\n  {e}: '{e}',\n  '{e}s': '{e}s',"
+                entity_en += f"\n  {e}: '{e}',\n  '{e}s': '{e}s',"
+
+        return f"""import {{ createContext, useContext, useState, ReactNode }} from 'react';
+
+export type Locale = 'es' | 'en';
+
+const translations = {{
+  es: {{
+    // Navigation
+    dashboard: 'Panel',
+    logout: 'Cerrar sesión',
+    login: 'Iniciar sesión con Keycloak',
+    // Table actions
+    new: 'Nuevo',
+    edit: 'Editar',
+    delete: 'Eliminar',
+    save: 'Guardar',
+    cancel: 'Cancelar',
+    actions: 'Acciones',
+    // Table / pagination
+    search: 'Buscar...',
+    loading: 'Cargando...',
+    noResults: 'Sin resultados',
+    page: 'Página',
+    of: 'de',
+    // Export
+    exportPdf: 'Exportar PDF',
+    exportExcel: 'Exportar Excel',
+    // Notifications
+    notifications: 'Notificaciones',
+    clearAll: 'Limpiar todo',
+    noNotifications: 'Sin notificaciones',
+    // Feedback
+    created: 'creado correctamente',
+    updated: 'actualizado correctamente',
+    deleted: 'eliminado correctamente',
+    errorSaving: 'Error al guardar',
+    errorLoading: 'Error al cargar',
+    // Confirm
+    confirmDelete: '¿Eliminar este registro?',{entity_es}
+  }},
+  en: {{
+    // Navigation
+    dashboard: 'Dashboard',
+    logout: 'Sign out',
+    login: 'Sign in with Keycloak',
+    // Table actions
+    new: 'New',
+    edit: 'Edit',
+    delete: 'Delete',
+    save: 'Save',
+    cancel: 'Cancel',
+    actions: 'Actions',
+    // Table / pagination
+    search: 'Search...',
+    loading: 'Loading...',
+    noResults: 'No results',
+    page: 'Page',
+    of: 'of',
+    // Export
+    exportPdf: 'Export PDF',
+    exportExcel: 'Export Excel',
+    // Notifications
+    notifications: 'Notifications',
+    clearAll: 'Clear all',
+    noNotifications: 'No notifications',
+    // Feedback
+    created: 'created successfully',
+    updated: 'updated successfully',
+    deleted: 'deleted successfully',
+    errorSaving: 'Error saving',
+    errorLoading: 'Error loading',
+    // Confirm
+    confirmDelete: 'Delete this record?',{entity_en}
+  }},
+}};
+
+export type TranslationKey = keyof typeof translations.es;
+
+interface I18nContextValue {{
+  locale: Locale;
+  setLocale: (l: Locale) => void;
+  t: (key: TranslationKey) => string;
+}}
+
+const I18nContext = createContext<I18nContextValue>({{
+  locale: 'es',
+  setLocale: () => {{}},
+  t: (key) => key,
+}});
+
+export function I18nProvider({{ children }}: {{ children: ReactNode }}) {{
+  const [locale, setLocale] = useState<Locale>(() => {{
+    return (localStorage.getItem('locale') as Locale) ?? 'es';
+  }});
+
+  const handleSetLocale = (l: Locale) => {{
+    setLocale(l);
+    localStorage.setItem('locale', l);
+  }};
+
+  const t = (key: TranslationKey): string =>
+    (translations[locale] as Record<string, string>)[key] ?? key;
+
+  return (
+    <I18nContext.Provider value={{{{ locale, setLocale: handleSetLocale, t }}}}>
+      {{children}}
+    </I18nContext.Provider>
+  );
+}}
+
+export function useI18n() {{
+  return useContext(I18nContext);
+}}
+"""
+
+    def generate_language_switcher(self) -> str:
+        """
+        Generates LanguageSwitcher.tsx — ES/EN toggle button for the navbar.
+        """
+        return """import { useI18n } from '../../context/I18nContext';
+
+export default function LanguageSwitcher() {
+  const { locale, setLocale } = useI18n();
+
+  return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+      <button
+        onClick={() => setLocale('es')}
+        style={{
+          background: locale === 'es' ? 'rgba(255,255,255,0.35)' : 'transparent',
+          color: '#fff', border: '1px solid rgba(255,255,255,0.4)',
+          borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
+          fontWeight: locale === 'es' ? 700 : 400, fontSize: 12,
+        }}
+      >ES</button>
+      <button
+        onClick={() => setLocale('en')}
+        style={{
+          background: locale === 'en' ? 'rgba(255,255,255,0.35)' : 'transparent',
+          color: '#fff', border: '1px solid rgba(255,255,255,0.4)',
+          borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
+          fontWeight: locale === 'en' ? 700 : 400, fontSize: 12,
+        }}
+      >EN</button>
     </div>
   );
 }
@@ -919,12 +1082,15 @@ export default function DashboardPage() {{
 
         return f"""import {{ Link, Navigate, Route, Routes }} from 'react-router-dom';
 import {{ useAuth }} from './auth/AuthProvider';
+import {{ useI18n }} from './context/I18nContext';
 import DashboardPage from './pages/DashboardPage';
 import NotificationBell from './components/Notifications/NotificationBell';
+import LanguageSwitcher from './components/LanguageSwitcher';
 {imports_pages}
 
 export default function App() {{
   const {{ authenticated, username, roles, login, logout }} = useAuth();
+  const {{ t }} = useI18n();
 
   if (!authenticated) {{
     return (
@@ -932,7 +1098,7 @@ export default function App() {{
         <h1>{entities[0] if entities else 'App'} Manager</h1>
         <p>Inicia sesión para continuar</p>
         <button onClick={{login}} style={{{{ padding: '10px 24px', fontSize: 16 }}}}>
-          Iniciar sesión con Keycloak
+          {{t('login')}}
         </button>
       </div>
     );
@@ -941,16 +1107,17 @@ export default function App() {{
   return (
     <>
       <nav style={{{{ display: 'flex', gap: 16, padding: '8px 16px', background: '#1976d2', alignItems: 'center' }}}}>
-        <Link to="/" style={{{{ color: '#fff', fontWeight: 700, textDecoration: 'none' }}}}>Dashboard</Link>
+        <Link to="/" style={{{{ color: '#fff', fontWeight: 700, textDecoration: 'none' }}}}>{{t('dashboard')}}</Link>
         {nav_links}
         <span style={{{{ marginLeft: 'auto', color: '#fff' }}}}>
           {{username}} ({{roles.join(', ')}})
         </span>
+        <LanguageSwitcher />
         <NotificationBell />
         <button
           onClick={{logout}}
           style={{{{ background: 'rgba(255,255,255,.15)', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }}}}
-        >Cerrar sesión</button>
+        >{{t('logout')}}</button>
       </nav>
       <main style={{{{ padding: 24 }}}}>
         <Routes>

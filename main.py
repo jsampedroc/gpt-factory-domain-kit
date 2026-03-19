@@ -1166,6 +1166,9 @@ public class SecurityConfig {{
         websocket_config_java = tg.generate_websocket_config(config_pkg)
         notification_message_java = tg.generate_notification_message(pkg)
         notification_service_java = tg.generate_notification_service(pkg)
+        messages_es = tg.generate_messages_properties("es")
+        messages_en = tg.generate_messages_properties("en")
+        message_source_config_java = tg.generate_message_source_config(config_pkg)
 
         # ---- Write all files ----
         pkg_path = pkg.replace(".", "/")
@@ -1188,6 +1191,9 @@ public class SecurityConfig {{
             f"backend/src/main/java/{pkg_path}/config/WebSocketConfig.java": websocket_config_java,
             f"backend/src/main/java/{pkg_path}/shared/NotificationMessage.java": notification_message_java,
             f"backend/src/main/java/{pkg_path}/shared/NotificationService.java": notification_service_java,
+            f"backend/src/main/java/{pkg_path}/config/MessageSourceConfig.java": message_source_config_java,
+            "backend/src/main/resources/messages.properties": messages_es,
+            "backend/src/main/resources/messages_en.properties": messages_en,
         }
 
         # ---- Dashboard files ----
@@ -1327,6 +1333,8 @@ public class SecurityConfig {{
             "frontend/src/pages/DashboardPage.tsx": gen.generate_dashboard_page(entities),
             "frontend/src/hooks/useWebSocket.ts": gen.generate_websocket_hook(),
             "frontend/src/components/Notifications/NotificationBell.tsx": gen.generate_notification_bell(),
+            "frontend/src/context/I18nContext.tsx": gen.generate_i18n_context_tsx(entities),
+            "frontend/src/components/LanguageSwitcher.tsx": gen.generate_language_switcher(),
         }
         for rel, content in auth_files.items():
             try:

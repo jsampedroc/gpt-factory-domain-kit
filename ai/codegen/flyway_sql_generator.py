@@ -142,6 +142,14 @@ class FlywaySqlGenerator:
                 col = _col_name(fname)
                 cols.append(f"    {col} {pg}")
 
+            # Audit columns — always present
+            cols += [
+                "    created_at  TIMESTAMP",
+                "    updated_at  TIMESTAMP",
+                "    created_by  VARCHAR(100)",
+                "    updated_by  VARCHAR(100)",
+            ]
+
             cols_str = ",\n".join(cols)
             blocks.append(f"CREATE TABLE {table} (\n{cols_str}\n);\n")
 

@@ -1132,12 +1132,15 @@ public class SecurityConfig {{
 }}
 """
 
-        # ---- Shared domain/API types ----
+        # ---- Shared domain/API types + Audit ----
         tg = self.template_generator
         shared_pkg = f"{pkg}.shared"
+        config_pkg = f"{pkg}.config"
         page_result_java = tg.generate_page_result(shared_pkg)
         page_response_java = tg.generate_page_response(shared_pkg)
-        exception_handler_java = tg.generate_global_exception_handler(f"{pkg}.config")
+        base_jpa_entity_java = tg.generate_base_jpa_entity(shared_pkg)
+        audit_config_java = tg.generate_audit_config(config_pkg, pkg)
+        exception_handler_java = tg.generate_global_exception_handler(config_pkg)
 
         # ---- Write all files ----
         pkg_path = pkg.replace(".", "/")
@@ -1149,6 +1152,8 @@ public class SecurityConfig {{
             f"backend/src/main/java/{pkg_path}/config/SecurityConfig.java": security_config,
             f"backend/src/main/java/{pkg_path}/shared/PageResult.java": page_result_java,
             f"backend/src/main/java/{pkg_path}/shared/PageResponse.java": page_response_java,
+            f"backend/src/main/java/{pkg_path}/shared/BaseJpaEntity.java": base_jpa_entity_java,
+            f"backend/src/main/java/{pkg_path}/config/AuditConfig.java": audit_config_java,
             f"backend/src/main/java/{pkg_path}/config/GlobalExceptionHandler.java": exception_handler_java,
         }
         if v1_sql:

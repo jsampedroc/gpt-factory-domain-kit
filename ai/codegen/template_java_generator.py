@@ -41,7 +41,7 @@ class TemplateJavaGenerator:
         # Unknown custom type → String (safe fallback)
         return "String"
 
-    def generate_jpa_entity(self, package_name, class_name, fields):
+    def generate_jpa_entity(self, package_name, class_name, fields, base_package=None):
 
         lines = []
 
@@ -49,6 +49,16 @@ class TemplateJavaGenerator:
 
         lines.append("import jakarta.persistence.*;\n")
         lines.append("import java.util.UUID;\n")
+
+        # BaseJpaEntity import — derive shared package from base_package or package_name
+        if base_package:
+            shared_pkg = f"{base_package}.shared"
+        else:
+            # package_name is something like com.foo.bar.module.infra.persistence.entity
+            # strip back to root (first 3 segments: com.foo.bar)
+            parts = package_name.split(".")
+            shared_pkg = ".".join(parts[:3]) + ".shared"
+        lines.append(f"import {shared_pkg}.BaseJpaEntity;\n")
 
         # detect collections
         needs_list = any((f.get("type") or "").startswith("List") for f in fields)
@@ -68,7 +78,7 @@ class TemplateJavaGenerator:
 
         lines.append("@Entity\n")
         lines.append(f"@Table(name = \"{table_name}\")\n")
-        lines.append(f"public class {class_name} {{\n\n")
+        lines.append(f"public class {class_name} extends BaseJpaEntity {{\n\n")
 
         lines.append("    @Id\n")
         lines.append("    @GeneratedValue\n")
@@ -114,6 +124,80 @@ class TemplateJavaGenerator:
         lines.append("\n}\n")
 
         return "".join(lines)
+
+    def generate_base_jpa_entity(self, package_name: str) -> str:
+        """Abstract superclass for all JPA entities — provides audit fields."""
+        return f"""package {package_name};
+
+import jakarta.persistence.Column;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.MappedSuperclass;
+import org.springframework.data.annotation.CreatedBy;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedBy;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
+import java.time.Instant;
+
+@MappedSuperclass
+@EntityListeners(AuditingEntityListener.class)
+public abstract class BaseJpaEntity {{
+
+    @CreatedDate
+    @Column(name = "created_at", updatable = false)
+    private Instant createdAt;
+
+    @LastModifiedDate
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
+    @CreatedBy
+    @Column(name = "created_by", length = 100, updatable = false)
+    private String createdBy;
+
+    @LastModifiedBy
+    @Column(name = "updated_by", length = 100)
+    private String updatedBy;
+
+    public Instant getCreatedAt() {{ return createdAt; }}
+    public Instant getUpdatedAt() {{ return updatedAt; }}
+    public String getCreatedBy() {{ return createdBy; }}
+    public String getUpdatedBy() {{ return updatedBy; }}
+}}
+"""
+
+    def generate_audit_config(self, package_name: str, base_package: str) -> str:
+        """@EnableJpaAuditing config + AuditorAware bean wired to Keycloak JWT."""
+        return f"""package {package_name};
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.domain.AuditorAware;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+
+import java.util.Optional;
+
+@Configuration
+@EnableJpaAuditing(auditorAwareRef = "auditorProvider")
+public class AuditConfig {{
+
+    @Bean
+    public AuditorAware<String> auditorProvider() {{
+        return () -> {{
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth instanceof JwtAuthenticationToken jwtToken) {{
+                String username = jwtToken.getToken().getClaimAsString("preferred_username");
+                return Optional.ofNullable(username).filter(s -> !s.isBlank());
+            }}
+            return Optional.of("system");
+        }};
+    }}
+}}
+"""
 
     def generate_page_result(self, package_name: str) -> str:
         """Domain-layer PageResult<T> — no Spring dependency."""

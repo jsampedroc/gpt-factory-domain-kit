@@ -144,6 +144,9 @@ import java.time.Instant;
 @EntityListeners(AuditingEntityListener.class)
 public abstract class BaseJpaEntity {{
 
+    @Column(name = "active", nullable = false, columnDefinition = "boolean default true")
+    private boolean active = true;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
@@ -160,6 +163,8 @@ public abstract class BaseJpaEntity {{
     @Column(name = "updated_by", length = 100)
     private String updatedBy;
 
+    public boolean isActive() {{ return active; }}
+    public void setActive(boolean active) {{ this.active = active; }}
     public Instant getCreatedAt() {{ return createdAt; }}
     public Instant getUpdatedAt() {{ return updatedAt; }}
     public String getCreatedBy() {{ return createdBy; }}
@@ -324,6 +329,8 @@ public interface {entity}Repository {{
 
     PageResult<{entity}> findAll(int page, int size, String search);
 
+    void deactivate(UUID id);
+
 }}
 
 """
@@ -465,12 +472,16 @@ public class {class_name} {{
             and not f["name"].lower().endswith("id")
         ][:4]  # cap to 4 most relevant
 
+        # Always filter active=true
+        active_filter = "        spec = spec.and((root, q, cb) -> cb.isTrue(root.get(\"active\")));"
+
         if str_fields:
             predicate_lines = " ".join(
                 f'cb.like(cb.lower(root.get("{fn}")), like),'
                 for fn in str_fields
             ).rstrip(",")
             search_body = (
+                f"{active_filter}\n"
                 f"        if (search != null && !search.isBlank()) {{\n"
                 f"            String like = \"%\" + search.toLowerCase() + \"%\";\n"
                 f"            spec = spec.and((root, q, cb) -> cb.or(\n"
@@ -479,7 +490,7 @@ public class {class_name} {{
                 f"        }}"
             )
         else:
-            search_body = "        // no searchable string fields"
+            search_body = active_filter
 
         if module:
             page_import = f"{base_package}.shared.PageResult"
@@ -532,6 +543,14 @@ public class {class_name} implements {entity}Repository {{
         return new PageResult<>(content, page, size, p.getTotalElements());
     }}
 
+    @Override
+    public void deactivate(UUID id) {{
+        springRepository.findById(id).ifPresent(jpa -> {{
+            jpa.setActive(false);
+            springRepository.save(jpa);
+        }});
+    }}
+
     private {entity}JpaEntity toJpaEntity({entity} domain) {{
         {entity}JpaEntity jpa = new {entity}JpaEntity();
         jpa.setId(domain.getId().value());
@@ -578,7 +597,12 @@ public class {class_name} implements {entity}Repository {{
                 )
             return "        return repository.findAll().stream().findFirst();"
 
-        if is_deactivate or is_update:
+        if is_deactivate:
+            if id_field:
+                return f"        repository.deactivate({dto_var}.{id_field}());"
+            return "        throw new UnsupportedOperationException(\"Not implemented\");"
+
+        if is_update:
             if id_field:
                 return (
                     f"        return repository.findById({dto_var}.{id_field}())\n"
@@ -631,8 +655,11 @@ public class {class_name} implements {entity}Repository {{
         # Determine return type
         returns = uc_returns or entity
         is_list_all = use_case_name.startswith("ListAll")
+        is_deactivate_uc = any(w in use_case_name.lower() for w in ("deactivat", "cancel", "remov", "delet"))
         needs_optional = uc_type == "query" and not returns.startswith("List") and not is_list_all
-        if is_list_all:
+        if is_deactivate_uc:
+            return_type = "void"
+        elif is_list_all:
             return_type = f"PageResult<{entity}>"
         elif needs_optional:
             return_type = f"Optional<{returns}>"

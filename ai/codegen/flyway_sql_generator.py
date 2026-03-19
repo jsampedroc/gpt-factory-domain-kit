@@ -142,8 +142,9 @@ class FlywaySqlGenerator:
                 col = _col_name(fname)
                 cols.append(f"    {col} {pg}")
 
-            # Audit columns — always present
+            # Soft-delete + audit columns — always present
             cols += [
+                "    active      BOOLEAN NOT NULL DEFAULT TRUE",
                 "    created_at  TIMESTAMP",
                 "    updated_at  TIMESTAMP",
                 "    created_by  VARCHAR(100)",

@@ -1220,13 +1220,50 @@ export default function DashboardPage() {{
             f'<Route path="/{_camel(e)}s" element={{<{e}Page />}} />' for e in entities
         )
 
-        return f"""import {{ Link, Navigate, Route, Routes }} from 'react-router-dom';
+        nav_items_js = ", ".join(
+            f'{{ label: "{e}s", to: "/{_camel(e)}s" }}' for e in entities
+        )
+        return f"""import {{ Route, Routes, useNavigate }} from 'react-router-dom';
+import {{ useState, useRef, useEffect }} from 'react';
 import {{ useAuth }} from './auth/AuthProvider';
 import {{ useI18n }} from './context/I18nContext';
 import DashboardPage from './pages/DashboardPage';
 import NotificationBell from './components/Notifications/NotificationBell';
 import LanguageSwitcher from './components/LanguageSwitcher';
 {imports_pages}
+
+interface NavItem {{ label: string; to: string; }}
+
+const NAV_ITEMS: NavItem[] = [{nav_items_js}];
+
+function NavDropdown({{ items }}: {{ items: NavItem[] }}) {{
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  useEffect(() => {{
+    const h = (e: MouseEvent) => {{ if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }};
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }}, []);
+  if (items.length === 0) return null;
+  return (
+    <div ref={{ref}} style={{{{ position: 'relative' }}}}>
+      <button onClick={{() => setOpen(o => !o)}} style={{{{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '14px 16px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 4 }}}}>
+        Módulos <span style={{{{ fontSize: 10, opacity: 0.8 }}}}>▼</span>
+      </button>
+      {{open && (
+        <div style={{{{ position: 'absolute', top: '100%', left: 0, background: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,.15)', borderRadius: 4, minWidth: 180, zIndex: 1000, overflow: 'hidden' }}}}>
+          {{items.map(item => (
+            <button key={{item.to}} onClick={{() => {{ navigate(item.to); setOpen(false); }}}}
+              style={{{{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 16px', background: 'none', border: 'none', color: '#1976d2', cursor: 'pointer', fontSize: '0.875rem', borderBottom: '1px solid #f0f0f0' }}}}>
+              {{item.label}}
+            </button>
+          ))}}
+        </div>
+      )}}
+    </div>
+  );
+}}
 
 export default function App() {{
   const {{ authenticated, username, roles, login, logout }} = useAuth();
@@ -1246,18 +1283,17 @@ export default function App() {{
 
   return (
     <>
-      <nav style={{{{ display: 'flex', gap: 0, padding: '0 16px', background: '#1976d2', alignItems: 'center', width: '100%', flexWrap: 'wrap' }}}}>
-        <Link to="/" style={{{{ color: '#fff', fontWeight: 700, textDecoration: 'none' }}}}>{{t('dashboard')}}</Link>
-        {nav_links}
-        <span style={{{{ marginLeft: 'auto', color: '#fff' }}}}>
+      <nav style={{{{ display: 'flex', background: '#1976d2', alignItems: 'center', width: '100%', position: 'sticky', top: 0, zIndex: 100 }}}}>
+        <span style={{{{ color: '#fff', fontWeight: 700, padding: '14px 20px', fontSize: '1rem' }}}}>{{t('dashboard')}}</span>
+        <NavDropdown items={{NAV_ITEMS}} />
+        <span style={{{{ marginLeft: 'auto', color: '#fff', fontSize: '0.8rem', padding: '0 8px', whiteSpace: 'nowrap' }}}}>
           {{username}} ({{roles.join(', ')}})
         </span>
         <LanguageSwitcher />
         <NotificationBell />
-        <button
-          onClick={{logout}}
-          style={{{{ background: 'rgba(255,255,255,.15)', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }}}}
-        >{{t('logout')}}</button>
+        <button onClick={{logout}} style={{{{ background: 'rgba(255,255,255,.15)', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 14px', cursor: 'pointer', margin: '0 8px' }}}}>
+          {{t('logout')}}
+        </button>
       </nav>
       <main style={{{{ padding: 24 }}}}>
         <Routes>

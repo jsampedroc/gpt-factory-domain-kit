@@ -853,7 +853,7 @@ export default function FileUpload({{ entityType, entityId }}: Props) {{
 
   const fetchDocs = async () => {{
     try {{
-      const res = await apiFetch(`${{{{API_BASE}}}}/api/documents/${{{{entityType}}}}/${{{{entityId}}}}`);
+      const res = await apiFetch(`${{API_BASE}}/api/documents/${{entityType}}/${{entityId}}`);
       if (res.ok) setDocs(await res.json());
     }} catch {{}}
   }};
@@ -866,7 +866,7 @@ export default function FileUpload({{ entityType, entityId }}: Props) {{
       const form = new FormData();
       form.append('file', file);
       const res = await apiFetch(
-        `${{{{API_BASE}}}}/api/documents/${{{{entityType}}}}/${{{{entityId}}}}`,
+        `${{API_BASE}}/api/documents/${{entityType}}/${{entityId}}`,
         {{ method: 'POST', body: form }}
       );
       if (res.ok) await fetchDocs();
@@ -885,7 +885,7 @@ export default function FileUpload({{ entityType, entityId }}: Props) {{
   const handleDelete = async (storedName: string) => {{
     if (!confirm('¿Eliminar este archivo?')) return;
     await apiFetch(
-      `${{{{API_BASE}}}}/api/documents/${{{{entityType}}}}/${{{{entityId}}}}/${{{{storedName}}}}`,
+      `${{API_BASE}}/api/documents/${{entityType}}/${{entityId}}/${{storedName}}`,
       {{ method: 'DELETE' }}
     );
     await fetchDocs();
@@ -908,7 +908,7 @@ export default function FileUpload({{ entityType, entityId }}: Props) {{
         onDrop={{handleDrop}}
         onClick={{() => inputRef.current?.click()}}
         style={{{{
-          border: `2px dashed ${{{{dragging ? '#1976d2' : '#ccc'}}}}`,
+          border: `2px dashed ${{dragging ? '#1976d2' : '#ccc'}}`,
           borderRadius: 8, padding: '20px 16px', textAlign: 'center',
           cursor: 'pointer', background: dragging ? '#e3f2fd' : '#fafafa',
           color: '#888', fontSize: 14, transition: 'all .2s',
@@ -1992,6 +1992,473 @@ export default function InsuranceForm({ patientId, initial, onSave }: Props) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+"""
+
+    def generate_treatment_plan_editor_tsx(self) -> str:
+        """
+        Generates TreatmentPlanEditor.tsx — itemized treatment plan editor.
+        Add/remove items per tooth with procedure, quantity, unit price.
+        Shows total, patient share (after insurance), and status selector.
+        """
+        return """import { useState } from 'react';
+
+interface PlanItem {
+  toothNumber: number | '';
+  procedureCode: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  insuranceCoverage: number;
+}
+
+const PROCEDURES = [
+  { code: 'EXT001', label: 'Extracción simple' },
+  { code: 'EXT002', label: 'Extracción quirúrgica' },
+  { code: 'OBT001', label: 'Obturación 1 cara' },
+  { code: 'OBT002', label: 'Obturación 2 caras' },
+  { code: 'OBT003', label: 'Obturación 3 caras' },
+  { code: 'END001', label: 'Endodoncia unirradicular' },
+  { code: 'END002', label: 'Endodoncia multirradicular' },
+  { code: 'PER001', label: 'Tartrectomía completa' },
+  { code: 'PER002', label: 'Raspado y alisado radicular' },
+  { code: 'PRO001', label: 'Corona metal-porcelana' },
+  { code: 'PRO002', label: 'Corona zirconio' },
+  { code: 'IMP001', label: 'Implante dental' },
+  { code: 'ORT001', label: 'Ortodoncia mensual' },
+  { code: 'BLA001', label: 'Blanqueamiento dental' },
+  { code: 'RAD001', label: 'Radiografía periapical' },
+  { code: 'RAD002', label: 'Ortopantomografía' },
+];
+
+const emptyItem = (): PlanItem => ({
+  toothNumber: '',
+  procedureCode: PROCEDURES[0].code,
+  description: PROCEDURES[0].label,
+  quantity: 1,
+  unitPrice: 0,
+  insuranceCoverage: 0,
+});
+
+interface Props {
+  patientId: string;
+  onSaved?: () => void;
+}
+
+export default function TreatmentPlanEditor({ patientId, onSaved }: Props) {
+  const [items, setItems] = useState<PlanItem[]>([emptyItem()]);
+  const [notes, setNotes] = useState('');
+  const [expiresAt, setExpiresAt] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const updateItem = (i: number, field: keyof PlanItem, value: string | number) => {
+    setItems(prev => {
+      const next = [...prev];
+      if (field === 'procedureCode') {
+        const proc = PROCEDURES.find(p => p.code === value);
+        next[i] = { ...next[i], procedureCode: value as string, description: proc?.label ?? '' };
+      } else {
+        next[i] = { ...next[i], [field]: value };
+      }
+      return next;
+    });
+  };
+
+  const addItem = () => setItems(prev => [...prev, emptyItem()]);
+  const removeItem = (i: number) => setItems(prev => prev.filter((_, idx) => idx !== i));
+
+  const total = items.reduce((sum, it) => sum + (it.unitPrice * it.quantity), 0);
+  const insurance = items.reduce((sum, it) => sum + it.insuranceCoverage, 0);
+  const patientShare = total - insurance;
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+      const res = await fetch(`${API_BASE}/api/treatment-plans`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          patientId,
+          expiresAt: expiresAt || null,
+          notes,
+          items: items.map(it => ({
+            toothNumber: it.toothNumber !== '' ? it.toothNumber : null,
+            procedureCode: it.procedureCode,
+            description: it.description,
+            quantity: it.quantity,
+            unitPrice: it.unitPrice,
+            insuranceCoverage: it.insuranceCoverage,
+          })),
+        }),
+      });
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+        onSaved?.();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: 20 }}>
+      <h3 style={{ margin: '0 0 16px' }}>Nuevo plan de tratamiento</h3>
+
+      {/* Items table */}
+      <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#f5f5f5' }}>
+              {['Diente', 'Procedimiento', 'Descripción', 'Cant.', 'Precio unit.', 'Seguro cubre', 'Total', ''].map(h => (
+                <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                <td style={{ padding: '6px 8px' }}>
+                  <input
+                    type="number" min={11} max={48} placeholder="—"
+                    value={item.toothNumber}
+                    onChange={e => updateItem(i, 'toothNumber', e.target.value ? Number(e.target.value) : '')}
+                    style={{ width: 52, padding: '4px 6px', border: '1px solid #ddd', borderRadius: 4 }}
+                  />
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  <select
+                    value={item.procedureCode}
+                    onChange={e => updateItem(i, 'procedureCode', e.target.value)}
+                    style={{ padding: '4px 6px', border: '1px solid #ddd', borderRadius: 4, maxWidth: 200 }}
+                  >
+                    {PROCEDURES.map(p => <option key={p.code} value={p.code}>{p.label}</option>)}
+                  </select>
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  <input
+                    value={item.description}
+                    onChange={e => updateItem(i, 'description', e.target.value)}
+                    style={{ width: 180, padding: '4px 6px', border: '1px solid #ddd', borderRadius: 4 }}
+                  />
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  <input
+                    type="number" min={1} value={item.quantity}
+                    onChange={e => updateItem(i, 'quantity', Number(e.target.value))}
+                    style={{ width: 48, padding: '4px 6px', border: '1px solid #ddd', borderRadius: 4 }}
+                  />
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  <input
+                    type="number" min={0} step="0.01" value={item.unitPrice}
+                    onChange={e => updateItem(i, 'unitPrice', Number(e.target.value))}
+                    style={{ width: 80, padding: '4px 6px', border: '1px solid #ddd', borderRadius: 4 }}
+                  />
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  <input
+                    type="number" min={0} step="0.01" value={item.insuranceCoverage}
+                    onChange={e => updateItem(i, 'insuranceCoverage', Number(e.target.value))}
+                    style={{ width: 80, padding: '4px 6px', border: '1px solid #ddd', borderRadius: 4 }}
+                  />
+                </td>
+                <td style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {(item.unitPrice * item.quantity).toFixed(2)} €
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  <button onClick={() => removeItem(i)} style={{ background: '#ef5350', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer' }}>✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <button onClick={addItem} style={{ fontSize: 13, padding: '6px 14px', background: '#e3f2fd', color: '#1565c0', border: '1px solid #90caf9', borderRadius: 4, cursor: 'pointer', marginBottom: 16 }}>
+        + Añadir procedimiento
+      </button>
+
+      {/* Summary */}
+      <div style={{ display: 'flex', gap: 24, justifyContent: 'flex-end', marginBottom: 16, fontSize: 14 }}>
+        <div>Total bruto: <strong>{total.toFixed(2)} €</strong></div>
+        <div style={{ color: '#2e7d32' }}>Cubre seguro: <strong>-{insurance.toFixed(2)} €</strong></div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: '#1976d2' }}>Paciente paga: {patientShare.toFixed(2)} €</div>
+      </div>
+
+      {/* Metadata */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+        <div>
+          <label style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>Válido hasta</label>
+          <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
+            style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>Observaciones</label>
+          <input value={notes} onChange={e => setNotes(e.target.value)}
+            placeholder="Notas para el paciente..."
+            style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4 }} />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        {saved && <span style={{ color: '#2e7d32', alignSelf: 'center', fontSize: 13 }}>✓ Plan guardado</span>}
+        <button onClick={handleSave} disabled={saving || items.length === 0}
+          style={{ padding: '8px 24px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+          {saving ? 'Guardando...' : 'Guardar plan'}
+        </button>
+      </div>
+    </div>
+  );
+}
+"""
+
+    def generate_reports_page_tsx(self) -> str:
+        """
+        Generates ReportsPage.tsx — production BI dashboard with custom SVG bar charts.
+        Shows monthly production, top procedures, cancellations, revenue forecast.
+        No external charting library — pure CSS/SVG.
+        """
+        return """import { useEffect, useState } from 'react';
+
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+
+interface MonthlyProduction { month: string; production: number; collected: number; appointments: number; }
+interface DentistProduction { dentistName: string; total: number; appointments: number; }
+interface ProcedureStats { code: string; name: string; count: number; revenue: number; }
+interface CancellationStats { month: string; total: number; cancelled: number; noShow: number; ratePercent: number; }
+interface RevenueForecast { pipeline: number; thisMonth: number; nextMonth: number; openPlans: number; }
+
+function BarChart({ data, valueKey, labelKey, color = '#1976d2', unit = '€' }: {
+  data: any[]; valueKey: string; labelKey: string; color?: string; unit?: string;
+}) {
+  if (!data.length) return null;
+  const max = Math.max(...data.map(d => d[valueKey]));
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, minWidth: data.length * 48, height: 140 }}>
+        {data.map((d, i) => {
+          const pct = max > 0 ? (d[valueKey] / max) * 100 : 0;
+          return (
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <span style={{ fontSize: 9, color: '#999' }}>
+                {typeof d[valueKey] === 'number' && d[valueKey] > 999
+                  ? (d[valueKey] / 1000).toFixed(1) + 'k'
+                  : d[valueKey]}{unit === '€' && d[valueKey] > 0 ? '€' : ''}
+              </span>
+              <div style={{
+                width: '100%', height: `${pct}%`,
+                background: color, borderRadius: '3px 3px 0 0', minHeight: 2,
+                transition: 'height .3s ease',
+              }} title={`${d[labelKey]}: ${d[valueKey]}${unit}`} />
+              <span style={{ fontSize: 9, color: '#aaa', textAlign: 'center', lineHeight: 1.2 }}>
+                {String(d[labelKey]).slice(-5)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({ label, value, sub, color = '#1976d2' }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: '16px 20px', borderTop: `3px solid ${color}` }}>
+      <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function fmt(n: number) {
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
+}
+
+export default function ReportsPage() {
+  const [monthly, setMonthly] = useState<MonthlyProduction[]>([]);
+  const [byDentist, setByDentist] = useState<DentistProduction[]>([]);
+  const [procedures, setProcedures] = useState<ProcedureStats[]>([]);
+  const [cancellations, setCancellations] = useState<CancellationStats[]>([]);
+  const [forecast, setForecast] = useState<RevenueForecast | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'production' | 'procedures' | 'cancellations' | 'forecast'>('production');
+
+  const today = new Date();
+  const fromDate = new Date(today); fromDate.setMonth(fromDate.getMonth() - 3);
+  const fromStr = fromDate.toISOString().slice(0, 10);
+  const toStr = today.toISOString().slice(0, 10);
+
+  useEffect(() => {
+    const headers = { 'Content-Type': 'application/json' };
+    const opts = { credentials: 'include' as const };
+    Promise.all([
+      fetch(`${API_BASE}/api/reports/production/monthly?months=12`, opts).then(r => r.json()),
+      fetch(`${API_BASE}/api/reports/production/by-dentist?from=${fromStr}&to=${toStr}`, opts).then(r => r.json()),
+      fetch(`${API_BASE}/api/reports/production/top-procedures`, opts).then(r => r.json()),
+      fetch(`${API_BASE}/api/reports/cancellations?months=6`, opts).then(r => r.json()),
+      fetch(`${API_BASE}/api/reports/revenue-forecast`, opts).then(r => r.json()),
+    ]).then(([m, d, p, c, f]) => {
+      setMonthly(m); setByDentist(d); setProcedures(p); setCancellations(c); setForecast(f);
+    }).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <p style={{ padding: 24, color: '#999' }}>Cargando informes...</p>;
+
+  const totalProduction = monthly.reduce((s, m) => s + m.production, 0);
+  const totalAppointments = monthly.reduce((s, m) => s + m.appointments, 0);
+  const avgCancellationRate = cancellations.length
+    ? Math.round(cancellations.reduce((s, c) => s + c.ratePercent, 0) / cancellations.length)
+    : 0;
+
+  const TABS = [
+    { key: 'production', label: '📈 Producción' },
+    { key: 'procedures', label: '🦷 Procedimientos' },
+    { key: 'cancellations', label: '❌ Cancelaciones' },
+    { key: 'forecast', label: '🔮 Previsión' },
+  ] as const;
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 20px' }}>Informes de producción</h2>
+
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+        <KpiCard label="Producción anual" value={fmt(totalProduction)} sub="últimos 12 meses" color="#1976d2" />
+        <KpiCard label="Citas realizadas" value={String(totalAppointments)} sub="últimos 12 meses" color="#388e3c" />
+        <KpiCard label="Pipeline aceptado" value={forecast ? fmt(forecast.pipeline) : '—'} sub={`${forecast?.openPlans ?? 0} planes abiertos`} color="#f57c00" />
+        <KpiCard label="Tasa cancelación" value={`${avgCancellationRate}%`} sub="media últimos 6 meses" color={avgCancellationRate > 15 ? '#c62828' : '#2e7d32'} />
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '2px solid #e0e0e0' }}>
+        {TABS.map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+            style={{
+              padding: '8px 16px', border: 'none', borderRadius: '4px 4px 0 0',
+              background: activeTab === tab.key ? '#1976d2' : '#f5f5f5',
+              color: activeTab === tab.key ? '#fff' : '#555',
+              cursor: 'pointer', fontWeight: activeTab === tab.key ? 600 : 400,
+              marginBottom: -2, borderBottom: activeTab === tab.key ? '2px solid #1976d2' : 'none',
+            }}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: 20 }}>
+
+        {activeTab === 'production' && (
+          <div>
+            <h3 style={{ margin: '0 0 16px' }}>Producción mensual (12 meses)</h3>
+            <BarChart data={monthly} valueKey="production" labelKey="month" color="#1976d2" />
+            <div style={{ marginTop: 24 }}>
+              <h4 style={{ margin: '0 0 12px' }}>Por dentista (últimos 3 meses)</h4>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: '#f5f5f5' }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left' }}>Dentista</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Producción</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Citas</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Media/cita</th>
+                </tr></thead>
+                <tbody>{byDentist.map((d, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                    <td style={{ padding: '8px 12px', fontWeight: 600 }}>{d.dentistName}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmt(d.total)}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>{d.appointments}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#1976d2' }}>
+                      {fmt(d.appointments > 0 ? d.total / d.appointments : 0)}
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'procedures' && (
+          <div>
+            <h3 style={{ margin: '0 0 16px' }}>Top procedimientos por ingresos</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead><tr style={{ background: '#f5f5f5' }}>
+                <th style={{ padding: '8px 12px', textAlign: 'left' }}>#</th>
+                <th style={{ padding: '8px 12px', textAlign: 'left' }}>Procedimiento</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Uds.</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Ingresos</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right' }}>% del total</th>
+              </tr></thead>
+              <tbody>
+                {(() => {
+                  const totalRev = procedures.reduce((s, p) => s + p.revenue, 0);
+                  return procedures.map((p, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '8px 12px', color: '#aaa' }}>{i + 1}</td>
+                      <td style={{ padding: '8px 12px', fontWeight: 600 }}>{p.name}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>{p.count}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#1976d2' }}>{fmt(p.revenue)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                          <div style={{ width: 60, background: '#f0f0f0', borderRadius: 4, height: 8 }}>
+                            <div style={{ width: `${totalRev > 0 ? (p.revenue / totalRev * 100) : 0}%`, background: '#1976d2', height: '100%', borderRadius: 4 }} />
+                          </div>
+                          {totalRev > 0 ? (p.revenue / totalRev * 100).toFixed(1) : 0}%
+                        </div>
+                      </td>
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeTab === 'cancellations' && (
+          <div>
+            <h3 style={{ margin: '0 0 16px' }}>Análisis de cancelaciones (6 meses)</h3>
+            <BarChart data={cancellations} valueKey="ratePercent" labelKey="month" color="#ef5350" unit="%" />
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 20 }}>
+              <thead><tr style={{ background: '#f5f5f5' }}>
+                {['Mes', 'Total citas', 'Canceladas', 'No presentado', 'Tasa'].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Mes' ? 'left' : 'right' }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{cancellations.map((c, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                  <td style={{ padding: '8px 12px' }}>{c.month}</td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>{c.total}</td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', color: '#f57c00' }}>{c.cancelled}</td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', color: '#c62828' }}>{c.noShow}</td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: c.ratePercent > 15 ? '#c62828' : '#2e7d32' }}>
+                    {c.ratePercent}%
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+
+        {activeTab === 'forecast' && forecast && (
+          <div>
+            <h3 style={{ margin: '0 0 20px' }}>Previsión de ingresos</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+              <KpiCard label="Pipeline total" value={fmt(forecast.pipeline)} sub={`${forecast.openPlans} planes aceptados`} color="#1976d2" />
+              <KpiCard label="Previsión este mes" value={fmt(forecast.thisMonth)} color="#388e3c" />
+              <KpiCard label="Previsión mes siguiente" value={fmt(forecast.nextMonth)} color="#f57c00" />
+            </div>
+            <div style={{ marginTop: 20, padding: 16, background: '#f9f9f9', borderRadius: 8, fontSize: 13, color: '#666' }}>
+              <strong>ℹ️ Metodología:</strong> La previsión se calcula a partir de los planes de tratamiento en estado
+              ACCEPTED, ponderados por la tasa histórica de completado mensual de la clínica.
+              Conecta el endpoint <code>/api/reports/revenue-forecast</code> con tus datos reales de TreatmentPlan.
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

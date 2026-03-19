@@ -1236,6 +1236,21 @@ public class SecurityConfig {{
         except Exception as e:
             f.log(f"⚠️ Audit/Insurance generation error: {e}")
 
+        # ---- Treatment Plans (Round 23) ----
+        try:
+            tp_files = tg.generate_treatment_plan(pkg)
+            for rel, content in tp_files.items():
+                files[f"backend/{rel}"] = content
+        except Exception as e:
+            f.log(f"⚠️ Treatment Plan generation error: {e}")
+
+        # ---- Production Reports / BI (Round 25) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/ProductionReportController.java"] = \
+                tg.generate_production_report_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Production Report generation error: {e}")
+
         # ---- Integration tests (Testcontainers) ----
         if dashboard_modules:
             try:
@@ -1343,6 +1358,7 @@ public class SecurityConfig {{
 
         # ---- Auth + shared + dashboard + WebSocket files ----
         auth_files = {
+            "frontend/src/vite-env.d.ts": '/// <reference types="vite/client" />\n',
             "frontend/src/auth/keycloak.ts": gen.generate_keycloak_ts(f.project_slug),
             "frontend/src/auth/AuthProvider.tsx": gen.generate_auth_provider_tsx(),
             "frontend/src/api/apiFetch.ts": gen.generate_api_fetch_ts(),
@@ -1363,6 +1379,10 @@ public class SecurityConfig {{
             "frontend/src/components/WaitingRoom/WaitingRoom.tsx": gen.generate_waiting_room_tsx(),
             "frontend/src/components/ClinicalTimeline/ClinicalTimeline.tsx": gen.generate_clinical_timeline_tsx(),
             "frontend/src/components/Insurance/InsuranceForm.tsx": gen.generate_insurance_form_tsx(),
+            # Round 23: Treatment Plans
+            "frontend/src/components/TreatmentPlan/TreatmentPlanEditor.tsx": gen.generate_treatment_plan_editor_tsx(),
+            # Round 25: Production Reports / BI
+            "frontend/src/pages/ReportsPage.tsx": gen.generate_reports_page_tsx(),
         }
         for rel, content in auth_files.items():
             try:

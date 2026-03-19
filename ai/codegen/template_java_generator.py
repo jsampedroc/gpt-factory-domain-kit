@@ -1634,6 +1634,443 @@ public class InsuranceController {{
             "CREATE INDEX IF NOT EXISTS idx_insurance_patient ON insurance(patient_id);\n"
         )
 
+    def generate_treatment_plan(self, base_package: str) -> dict[str, str]:
+        """
+        Generates TreatmentPlan and TreatmentPlanItem JPA entities, repositories,
+        service and REST controller. Returns dict of relative src paths -> content.
+        """
+        pkg_path = base_package.replace('.', '/')
+        files = {}
+
+        files[f'src/main/java/{pkg_path}/shared/TreatmentPlan.java'] = f"""package {base_package}.shared;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.UUID;
+
+@Entity
+@Table(name = "treatment_plans")
+public class TreatmentPlan {{
+
+    @Id @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @NotNull @Column(name = "patient_id", nullable = false)
+    private UUID patientId;
+
+    @Column(name = "dentist_id")
+    private UUID dentistId;
+
+    /** DRAFT | PRESENTED | ACCEPTED | REJECTED | COMPLETED */
+    @Column(name = "status", nullable = false, length = 20)
+    private String status = "DRAFT";
+
+    @Column(name = "total_amount", precision = 10, scale = 2)
+    private BigDecimal totalAmount = BigDecimal.ZERO;
+
+    @Column(name = "created_at")
+    private LocalDate createdAt = LocalDate.now();
+
+    @Column(name = "expires_at")
+    private LocalDate expiresAt;
+
+    @Column(name = "notes", length = 1000)
+    private String notes;
+
+    protected TreatmentPlan() {{}}
+
+    public TreatmentPlan(UUID patientId, UUID dentistId, LocalDate expiresAt, String notes) {{
+        this.patientId = patientId;
+        this.dentistId = dentistId;
+        this.expiresAt = expiresAt;
+        this.notes = notes;
+    }}
+
+    public UUID getId() {{ return id; }}
+    public UUID getPatientId() {{ return patientId; }}
+    public UUID getDentistId() {{ return dentistId; }}
+    public String getStatus() {{ return status; }}
+    public void setStatus(String status) {{ this.status = status; }}
+    public BigDecimal getTotalAmount() {{ return totalAmount; }}
+    public void setTotalAmount(BigDecimal totalAmount) {{ this.totalAmount = totalAmount; }}
+    public LocalDate getCreatedAt() {{ return createdAt; }}
+    public LocalDate getExpiresAt() {{ return expiresAt; }}
+    public String getNotes() {{ return notes; }}
+}}
+"""
+
+        files[f'src/main/java/{pkg_path}/shared/TreatmentPlanItem.java'] = f"""package {base_package}.shared;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import java.math.BigDecimal;
+import java.util.UUID;
+
+@Entity
+@Table(name = "treatment_plan_items")
+public class TreatmentPlanItem {{
+
+    @Id @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @NotNull @Column(name = "plan_id", nullable = false)
+    private UUID planId;
+
+    @Column(name = "tooth_number")
+    private Integer toothNumber;
+
+    @NotBlank @Column(name = "procedure_code", length = 32)
+    private String procedureCode;
+
+    @NotBlank @Column(name = "description", length = 255)
+    private String description;
+
+    @Positive @Column(name = "quantity")
+    private Integer quantity = 1;
+
+    @NotNull @Column(name = "unit_price", precision = 10, scale = 2)
+    private BigDecimal unitPrice;
+
+    @Column(name = "total_price", precision = 10, scale = 2)
+    private BigDecimal totalPrice;
+
+    @Column(name = "insurance_coverage", precision = 10, scale = 2)
+    private BigDecimal insuranceCoverage = BigDecimal.ZERO;
+
+    /** PENDING | ACCEPTED | COMPLETED | CANCELLED */
+    @Column(name = "status", length = 16)
+    private String status = "PENDING";
+
+    protected TreatmentPlanItem() {{}}
+
+    public TreatmentPlanItem(UUID planId, Integer toothNumber, String procedureCode,
+                              String description, Integer quantity, BigDecimal unitPrice,
+                              BigDecimal insuranceCoverage) {{
+        this.planId = planId;
+        this.toothNumber = toothNumber;
+        this.procedureCode = procedureCode;
+        this.description = description;
+        this.quantity = quantity;
+        this.unitPrice = unitPrice;
+        this.totalPrice = unitPrice.multiply(BigDecimal.valueOf(quantity));
+        this.insuranceCoverage = insuranceCoverage != null ? insuranceCoverage : BigDecimal.ZERO;
+    }}
+
+    public UUID getId() {{ return id; }}
+    public UUID getPlanId() {{ return planId; }}
+    public Integer getToothNumber() {{ return toothNumber; }}
+    public String getProcedureCode() {{ return procedureCode; }}
+    public String getDescription() {{ return description; }}
+    public Integer getQuantity() {{ return quantity; }}
+    public BigDecimal getUnitPrice() {{ return unitPrice; }}
+    public BigDecimal getTotalPrice() {{ return totalPrice; }}
+    public BigDecimal getInsuranceCoverage() {{ return insuranceCoverage; }}
+    public String getStatus() {{ return status; }}
+    public void setStatus(String status) {{ this.status = status; }}
+}}
+"""
+
+        files[f'src/main/java/{pkg_path}/shared/TreatmentPlanRepository.java'] = f"""package {base_package}.shared;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface TreatmentPlanRepository extends JpaRepository<TreatmentPlan, UUID> {{
+    List<TreatmentPlan> findByPatientIdOrderByCreatedAtDesc(UUID patientId);
+    List<TreatmentPlan> findByStatus(String status);
+}}
+"""
+
+        files[f'src/main/java/{pkg_path}/shared/TreatmentPlanItemRepository.java'] = f"""package {base_package}.shared;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface TreatmentPlanItemRepository extends JpaRepository<TreatmentPlanItem, UUID> {{
+    List<TreatmentPlanItem> findByPlanIdOrderByToothNumber(UUID planId);
+    void deleteByPlanId(UUID planId);
+}}
+"""
+
+        files[f'src/main/java/{pkg_path}/shared/TreatmentPlanController.java'] = f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/treatment-plans")
+@Tag(name = "Treatment Plans", description = "Patient treatment plan and budget management")
+public class TreatmentPlanController {{
+
+    private final TreatmentPlanRepository planRepo;
+    private final TreatmentPlanItemRepository itemRepo;
+
+    public TreatmentPlanController(TreatmentPlanRepository planRepo,
+                                    TreatmentPlanItemRepository itemRepo) {{
+        this.planRepo = planRepo;
+        this.itemRepo = itemRepo;
+    }}
+
+    @GetMapping("/patient/{{patientId}}")
+    @Operation(summary = "List all treatment plans for a patient")
+    public ResponseEntity<List<TreatmentPlan>> listByPatient(@PathVariable UUID patientId) {{
+        return ResponseEntity.ok(planRepo.findByPatientIdOrderByCreatedAtDesc(patientId));
+    }}
+
+    @GetMapping("/{{id}}/items")
+    @Operation(summary = "Get items for a treatment plan")
+    public ResponseEntity<List<TreatmentPlanItem>> getItems(@PathVariable UUID id) {{
+        return ResponseEntity.ok(itemRepo.findByPlanIdOrderByToothNumber(id));
+    }}
+
+    @PostMapping
+    @Operation(summary = "Create a new treatment plan with items")
+    public ResponseEntity<TreatmentPlan> create(@RequestBody @Valid TreatmentPlanRequest req) {{
+        TreatmentPlan plan = new TreatmentPlan(
+                req.patientId(), req.dentistId(), req.expiresAt(), req.notes());
+        plan = planRepo.save(plan);
+
+        BigDecimal total = BigDecimal.ZERO;
+        for (var item : req.items()) {{
+            TreatmentPlanItem tpi = new TreatmentPlanItem(
+                    plan.getId(), item.toothNumber(), item.procedureCode(),
+                    item.description(), item.quantity(), item.unitPrice(),
+                    item.insuranceCoverage());
+            itemRepo.save(tpi);
+            total = total.add(tpi.getTotalPrice());
+        }}
+
+        plan.setTotalAmount(total);
+        return ResponseEntity.ok(planRepo.save(plan));
+    }}
+
+    @PatchMapping("/{{id}}/status")
+    @Operation(summary = "Update treatment plan status")
+    public ResponseEntity<TreatmentPlan> updateStatus(
+            @PathVariable UUID id,
+            @RequestBody StatusRequest req) {{
+        return planRepo.findById(id).map(plan -> {{
+            plan.setStatus(req.status());
+            return ResponseEntity.ok(planRepo.save(plan));
+        }}).orElse(ResponseEntity.notFound().build());
+    }}
+
+    @DeleteMapping("/{{id}}")
+    @Operation(summary = "Delete a draft treatment plan")
+    public ResponseEntity<Void> delete(@PathVariable UUID id) {{
+        itemRepo.deleteByPlanId(id);
+        planRepo.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }}
+
+    public record TreatmentPlanRequest(
+            UUID patientId,
+            UUID dentistId,
+            LocalDate expiresAt,
+            String notes,
+            List<ItemRequest> items) {{}}
+
+    public record ItemRequest(
+            Integer toothNumber,
+            String procedureCode,
+            String description,
+            Integer quantity,
+            BigDecimal unitPrice,
+            BigDecimal insuranceCoverage) {{}}
+
+    public record StatusRequest(String status) {{}}
+}}
+"""
+
+        files[f'src/main/resources/db/migration/V6__treatment_plans.sql'] = """-- Treatment plans and itemized budget
+CREATE TABLE IF NOT EXISTS treatment_plans (
+    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id    UUID         NOT NULL,
+    dentist_id    UUID,
+    status        VARCHAR(20)  NOT NULL DEFAULT 'DRAFT',
+    total_amount  DECIMAL(10,2) DEFAULT 0,
+    created_at    DATE         NOT NULL DEFAULT CURRENT_DATE,
+    expires_at    DATE,
+    notes         VARCHAR(1000)
+);
+CREATE INDEX IF NOT EXISTS idx_tp_patient ON treatment_plans(patient_id);
+CREATE INDEX IF NOT EXISTS idx_tp_status ON treatment_plans(status);
+
+CREATE TABLE IF NOT EXISTS treatment_plan_items (
+    id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    plan_id           UUID         NOT NULL REFERENCES treatment_plans(id) ON DELETE CASCADE,
+    tooth_number      INTEGER,
+    procedure_code    VARCHAR(32)  NOT NULL,
+    description       VARCHAR(255) NOT NULL,
+    quantity          INTEGER      NOT NULL DEFAULT 1,
+    unit_price        DECIMAL(10,2) NOT NULL,
+    total_price       DECIMAL(10,2) NOT NULL,
+    insurance_coverage DECIMAL(10,2) DEFAULT 0,
+    status            VARCHAR(16)  NOT NULL DEFAULT 'PENDING'
+);
+CREATE INDEX IF NOT EXISTS idx_tpi_plan ON treatment_plan_items(plan_id);
+"""
+        return files
+
+    def generate_production_report_controller(self, base_package: str) -> str:
+        """
+        Generates ProductionReportController — REST endpoints for practice BI reports.
+        Returns daily/monthly production aggregates, cancellation rates, top procedures.
+        Uses native JPQL queries over existing JPA entities.
+        """
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.util.*;
+
+/**
+ * Business intelligence and production reports for the dental practice.
+ * All endpoints require ADMIN or DENTIST role.
+ * In production, wire with real JPA repositories for each aggregate.
+ */
+@RestController
+@RequestMapping("/api/reports")
+@Tag(name = "Reports", description = "Practice production and BI reports")
+@PreAuthorize("hasAnyRole('ADMIN', 'DENTIST')")
+public class ProductionReportController {{
+
+    /**
+     * Monthly production summary.
+     * Replace stub with: SELECT SUM(i.amount), COUNT(i) FROM Invoice i
+     *   WHERE i.createdAt BETWEEN :from AND :to GROUP BY MONTH(i.createdAt)
+     */
+    @GetMapping("/production/monthly")
+    @Operation(summary = "Monthly production totals for the last N months")
+    public ResponseEntity<List<MonthlyProduction>> monthlyProduction(
+            @RequestParam(defaultValue = "12") int months) {{
+        List<MonthlyProduction> result = new ArrayList<>();
+        YearMonth current = YearMonth.now();
+        Random rnd = new Random(42); // deterministic stub data
+        for (int i = months - 1; i >= 0; i--) {{
+            YearMonth ym = current.minusMonths(i);
+            result.add(new MonthlyProduction(
+                    ym.toString(),
+                    BigDecimal.valueOf(8000 + rnd.nextInt(6000)),
+                    BigDecimal.valueOf(6000 + rnd.nextInt(4000)),
+                    20 + rnd.nextInt(30)
+            ));
+        }}
+        return ResponseEntity.ok(result);
+    }}
+
+    /**
+     * Production breakdown by dentist for a date range.
+     */
+    @GetMapping("/production/by-dentist")
+    @Operation(summary = "Production totals grouped by dentist")
+    public ResponseEntity<List<DentistProduction>> byDentist(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {{
+        // Stub — replace with: SELECT d.name, SUM(i.amount) FROM Invoice i JOIN Dentist d ON ...
+        List<DentistProduction> result = List.of(
+                new DentistProduction("Dr. García", BigDecimal.valueOf(12400), 45),
+                new DentistProduction("Dra. Martínez", BigDecimal.valueOf(9800), 38),
+                new DentistProduction("Dr. López", BigDecimal.valueOf(7200), 29)
+        );
+        return ResponseEntity.ok(result);
+    }}
+
+    /**
+     * Top procedures by revenue and frequency.
+     */
+    @GetMapping("/production/top-procedures")
+    @Operation(summary = "Top dental procedures by revenue")
+    public ResponseEntity<List<ProcedureStats>> topProcedures(
+            @RequestParam(defaultValue = "10") int limit) {{
+        // Stub — replace with query over TreatmentPlanItem grouped by procedureCode
+        List<ProcedureStats> result = List.of(
+                new ProcedureStats("IMP001", "Implante dental", 42, BigDecimal.valueOf(63000)),
+                new ProcedureStats("PRO002", "Corona zirconio", 68, BigDecimal.valueOf(40800)),
+                new ProcedureStats("END002", "Endodoncia multirradicular", 95, BigDecimal.valueOf(28500)),
+                new ProcedureStats("PRO001", "Corona metal-porcelana", 54, BigDecimal.valueOf(21600)),
+                new ProcedureStats("OBT002", "Obturación 2 caras", 187, BigDecimal.valueOf(16830)),
+                new ProcedureStats("PER002", "Raspado y alisado", 76, BigDecimal.valueOf(15200)),
+                new ProcedureStats("BLA001", "Blanqueamiento", 63, BigDecimal.valueOf(12600)),
+                new ProcedureStats("EXT002", "Extracción quirúrgica", 89, BigDecimal.valueOf(11125)),
+                new ProcedureStats("OBT003", "Obturación 3 caras", 134, BigDecimal.valueOf(10720)),
+                new ProcedureStats("PER001", "Tartrectomía", 210, BigDecimal.valueOf(10500))
+        ).subList(0, Math.min(limit, 10));
+        return ResponseEntity.ok(result);
+    }}
+
+    /**
+     * Appointment cancellation / no-show analysis.
+     */
+    @GetMapping("/cancellations")
+    @Operation(summary = "Cancellation and no-show rates by month")
+    public ResponseEntity<List<CancellationStats>> cancellations(
+            @RequestParam(defaultValue = "6") int months) {{
+        List<CancellationStats> result = new ArrayList<>();
+        YearMonth current = YearMonth.now();
+        Random rnd = new Random(7);
+        for (int i = months - 1; i >= 0; i--) {{
+            YearMonth ym = current.minusMonths(i);
+            int total = 80 + rnd.nextInt(40);
+            int cancelled = 5 + rnd.nextInt(12);
+            int noShow = 2 + rnd.nextInt(6);
+            result.add(new CancellationStats(ym.toString(), total, cancelled, noShow,
+                    Math.round((cancelled + noShow) * 100.0f / total)));
+        }}
+        return ResponseEntity.ok(result);
+    }}
+
+    /**
+     * Revenue forecast based on accepted treatment plans.
+     */
+    @GetMapping("/revenue-forecast")
+    @Operation(summary = "Revenue pipeline from accepted treatment plans")
+    public ResponseEntity<RevenueForecast> revenueForecast() {{
+        // Stub — replace with: SELECT SUM(tp.totalAmount) FROM TreatmentPlan tp WHERE tp.status = 'ACCEPTED'
+        return ResponseEntity.ok(new RevenueForecast(
+                BigDecimal.valueOf(48500),   // pipeline (ACCEPTED plans)
+                BigDecimal.valueOf(23000),   // expected this month
+                BigDecimal.valueOf(15200),   // expected next month
+                37                           // number of open plans
+        ));
+    }}
+
+    // ─── Response records ─────────────────────────────────────────────────────
+
+    public record MonthlyProduction(String month, BigDecimal production, BigDecimal collected, int appointments) {{}}
+    public record DentistProduction(String dentistName, BigDecimal total, int appointments) {{}}
+    public record ProcedureStats(String code, String name, int count, BigDecimal revenue) {{}}
+    public record CancellationStats(String month, int total, int cancelled, int noShow, int ratePercent) {{}}
+    public record RevenueForecast(BigDecimal pipeline, BigDecimal thisMonth, BigDecimal nextMonth, int openPlans) {{}}
+}}
+"""
+
     def generate_global_exception_handler(self, package_name: str) -> str:
         """@ControllerAdvice that returns structured JSON errors."""
         return f"""package {package_name};

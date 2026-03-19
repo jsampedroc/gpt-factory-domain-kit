@@ -990,6 +990,7 @@ export default function LanguageSwitcher() {
 
     def generate_index_css(self) -> str:
         return """* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { width: 100%; min-height: 100vh; }
 body { font-family: system-ui, sans-serif; background: #f9fafb; color: #111827; }
 button {
   padding: 6px 14px;
@@ -1245,7 +1246,7 @@ export default function App() {{
 
   return (
     <>
-      <nav style={{{{ display: 'flex', gap: 16, padding: '8px 16px', background: '#1976d2', alignItems: 'center' }}}}>
+      <nav style={{{{ display: 'flex', gap: 0, padding: '0 16px', background: '#1976d2', alignItems: 'center', width: '100%', flexWrap: 'wrap' }}}}>
         <Link to="/" style={{{{ color: '#fff', fontWeight: 700, textDecoration: 'none' }}}}>{{t('dashboard')}}</Link>
         {nav_links}
         <span style={{{{ marginLeft: 'auto', color: '#fff' }}}}>

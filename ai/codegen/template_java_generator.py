@@ -390,6 +390,48 @@ public class DashboardController {{
 
         return files
 
+    def generate_cache_config(self, package_name: str) -> str:
+        """Caffeine cache manager with two caches: entityById and dashboard."""
+        return f"""package {package_name};
+
+import com.github.benmanes.caffeine.cache.Caffeine;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.caffeine.CaffeineCacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Caffeine cache configuration.
+ * entityById: caché de entidades por UUID (TTL 5 min, max 500 entries).
+ * dashboard: caché de estadísticas del dashboard (TTL 5 min).
+ */
+@Configuration
+@EnableCaching
+public class CacheConfig {{
+
+    public static final String CACHE_ENTITY_BY_ID = "entityById";
+    public static final String CACHE_DASHBOARD     = "dashboard";
+
+    @Bean
+    public CacheManager cacheManager() {{
+        CaffeineCacheManager manager = new CaffeineCacheManager(
+                CACHE_ENTITY_BY_ID,
+                CACHE_DASHBOARD
+        );
+        manager.setCaffeine(
+                Caffeine.newBuilder()
+                        .maximumSize(500)
+                        .expireAfterWrite(5, TimeUnit.MINUTES)
+                        .recordStats()
+        );
+        return manager;
+    }}
+}}
+"""
+
     def generate_openapi_config(self, package_name: str, project_name: str, project_slug: str) -> str:
         """OpenAPI 3 config with JWT Bearer security scheme."""
         title = project_name or project_slug or "API"

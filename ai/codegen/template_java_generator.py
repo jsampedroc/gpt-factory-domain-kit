@@ -241,6 +241,155 @@ public record PageResponse<T>(
         boolean last) {{}}
 """
 
+    def generate_dashboard(self, base_package: str, modules: list[dict]) -> dict[str, str]:
+        """
+        Generates 3 dashboard files:
+          - shared/DashboardStats.java    — typed record with per-entity KPIs
+          - config/DashboardService.java  — @Service aggregating SpringData repos
+          - config/DashboardController.java — GET /dashboard
+
+        modules: list of {"entity": str, "module": str, "fields": list}
+        Returns {relative_path: content}
+        """
+        import re as _re
+
+        files: dict[str, str] = {}
+
+        # ── Derive per-entity metadata ────────────────────────────────────
+        entity_infos = []
+        for m in modules:
+            entity = m["entity"]
+            mod = m["module"]
+            fields = m.get("fields", [])
+            snake = _re.sub(r"([A-Z])", r"_\1", entity).lstrip("_").lower()
+
+            status_fields = [
+                f["name"] for f in fields
+                if any(f.get("type", "").endswith(s) for s in ("Status", "State", "Type", "Kind"))
+            ]
+            money_fields = [
+                f["name"] for f in fields
+                if any(f.get("type", "").startswith(t) for t in ("Money", "BigDecimal", "Double", "Float"))
+                and any(f["name"].lower().endswith(k) for k in ("amount", "cost", "price", "total", "fee", "balance"))
+            ]
+
+            entity_infos.append({
+                "entity": entity,
+                "module": mod,
+                "snake": snake,
+                "status_fields": status_fields,
+                "money_fields": money_fields,
+            })
+
+        # ── DashboardStats record ─────────────────────────────────────────
+        stat_fields = []
+        for info in entity_infos:
+            e = info["entity"]
+            stat_fields.append(f"    long total{e}s")
+        # money totals
+        for info in entity_infos:
+            for mf in info["money_fields"]:
+                cap = mf[0].upper() + mf[1:]
+                stat_fields.append(f"    double total{cap}")
+
+        stat_fields_str = ",\n".join(stat_fields)
+
+        stats_java = f"""package {base_package}.shared;
+
+public record DashboardStats(
+{stat_fields_str}
+) {{}}
+"""
+        files[f"shared/DashboardStats.java"] = stats_java
+
+        # ── DashboardService ──────────────────────────────────────────────
+        repo_imports = []
+        repo_fields = []
+        repo_constructor_params = []
+        repo_constructor_assigns = []
+        stat_constructor_args = []
+
+        for info in entity_infos:
+            e = info["entity"]
+            mod = info["module"]
+            var = e[0].lower() + e[1:] + "Repo"
+            repo_class = f"SpringData{e}Repository"
+            repo_pkg = f"{base_package}.{mod}.infrastructure.persistence.spring.{repo_class}"
+            repo_imports.append(f"import {repo_pkg};")
+            repo_fields.append(f"    private final {repo_class} {var};")
+            repo_constructor_params.append(f"            {repo_class} {var}")
+            repo_constructor_assigns.append(f"        this.{var} = {var};")
+            stat_constructor_args.append(f"                {var}.countByActiveTrue()")
+
+        for info in entity_infos:
+            e = info["entity"]
+            mod = info["module"]
+            var = e[0].lower() + e[1:] + "Repo"
+            for mf in info["money_fields"]:
+                # Use JPQL sum — add custom query to SpringData repo (or use default 0)
+                stat_constructor_args.append(f"                0.0 // TODO: {var}.sumOf{mf[0].upper()+mf[1:]}()")
+
+        imports_str = "\n".join(repo_imports)
+        fields_str = "\n".join(repo_fields)
+        params_str = ",\n".join(repo_constructor_params)
+        assigns_str = "\n".join(repo_constructor_assigns)
+        args_str = ",\n".join(stat_constructor_args)
+
+        service_java = f"""package {base_package}.config;
+
+import {base_package}.shared.DashboardStats;
+{imports_str}
+import org.springframework.stereotype.Service;
+
+@Service
+public class DashboardService {{
+
+{fields_str}
+
+    public DashboardService(
+{params_str}) {{
+{assigns_str}
+    }}
+
+    public DashboardStats getStats() {{
+        return new DashboardStats(
+{args_str}
+        );
+    }}
+}}
+"""
+        files[f"config/DashboardService.java"] = service_java
+
+        # ── DashboardController ───────────────────────────────────────────
+        controller_java = f"""package {base_package}.config;
+
+import {base_package}.shared.DashboardStats;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/dashboard")
+@CrossOrigin(origins = "*")
+public class DashboardController {{
+
+    private final DashboardService service;
+
+    public DashboardController(DashboardService service) {{
+        this.service = service;
+    }}
+
+    @GetMapping
+    public DashboardStats getStats() {{
+        return service.getStats();
+    }}
+}}
+"""
+        files[f"config/DashboardController.java"] = controller_java
+
+        return files
+
     def generate_global_exception_handler(self, package_name: str) -> str:
         """@ControllerAdvice that returns structured JSON errors."""
         return f"""package {package_name};
@@ -353,6 +502,8 @@ import java.util.UUID;
 public interface SpringData{entity}Repository
         extends JpaRepository<{entity}JpaEntity, UUID>,
                 JpaSpecificationExecutor<{entity}JpaEntity> {{
+
+    long countByActiveTrue();
 }}
 """
 

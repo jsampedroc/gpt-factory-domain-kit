@@ -1050,6 +1050,22 @@ KEYCLOAK_ADMIN_PASSWORD=admin
             except Exception as e:
                 f.log(f"⚠️ Flyway SQL generation error: {e}")
 
+        # ---- Dashboard KPIs ----
+        dashboard_modules = []
+        if domain_model:
+            dm = domain_model.get("domain_model", domain_model)
+            entity_map = {e["name"]: e for e in dm.get("entities", []) if isinstance(e, dict) and e.get("name")}
+            for mod_name, mod_data in (dm.get("modules", {}) or {}).items():
+                if not isinstance(mod_data, dict):
+                    continue
+                for ent_name in mod_data.get("entities", []):
+                    if ent_name in entity_map:
+                        dashboard_modules.append({
+                            "entity": ent_name,
+                            "module": mod_name,
+                            "fields": entity_map[ent_name].get("fields", []),
+                        })
+
         # ---- SecurityConfig.java ----
         pkg_parts = pkg.split(".")
         proj_title = "".join(p.title() for p in slug.split("_"))
@@ -1156,6 +1172,15 @@ public class SecurityConfig {{
             f"backend/src/main/java/{pkg_path}/config/AuditConfig.java": audit_config_java,
             f"backend/src/main/java/{pkg_path}/config/GlobalExceptionHandler.java": exception_handler_java,
         }
+
+        # ---- Dashboard files ----
+        if dashboard_modules:
+            try:
+                dashboard_files = tg.generate_dashboard(pkg, dashboard_modules)
+                for rel, content in dashboard_files.items():
+                    files[f"backend/src/main/java/{pkg_path}/{rel}"] = content
+            except Exception as e:
+                f.log(f"⚠️ Dashboard generation error: {e}")
         if v1_sql:
             files["backend/src/main/resources/db/migration/V1__create_tables.sql"] = v1_sql
         if v2_sql:
@@ -1252,12 +1277,15 @@ public class SecurityConfig {{
             except Exception as e:
                 f.log(f"⚠️ Frontend file skipped ({path}): {e}")
 
-        # ---- Auth + shared files ----
+        # ---- Auth + shared + dashboard files ----
         auth_files = {
             "frontend/src/auth/keycloak.ts": gen.generate_keycloak_ts(f.project_slug),
             "frontend/src/auth/AuthProvider.tsx": gen.generate_auth_provider_tsx(),
             "frontend/src/api/apiFetch.ts": gen.generate_api_fetch_ts(),
             "frontend/src/types/PageResponse.ts": gen.generate_page_response_type(),
+            "frontend/src/types/DashboardStats.ts": gen.generate_dashboard_types(entities),
+            "frontend/src/api/dashboardApi.ts": gen.generate_dashboard_api(),
+            "frontend/src/pages/DashboardPage.tsx": gen.generate_dashboard_page(entities),
         }
         for rel, content in auth_files.items():
             try:

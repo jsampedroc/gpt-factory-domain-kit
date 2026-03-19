@@ -649,6 +649,82 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
 }
 """
 
+    def generate_dashboard_api(self) -> str:
+        return """import type { DashboardStats } from '../types/DashboardStats';
+import { apiFetch } from './apiFetch';
+
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const res = await apiFetch(`${API_BASE}/dashboard`);
+  if (!res.ok) throw new Error('Failed to fetch dashboard stats');
+  return res.json();
+}
+"""
+
+    def generate_dashboard_types(self, entities: list[str]) -> str:
+        fields = "\n".join(f"  total{e}s: number;" for e in entities)
+        return f"""export interface DashboardStats {{
+{fields}
+}}
+"""
+
+    def generate_dashboard_page(self, entities: list[str]) -> str:
+        cards = "\n      ".join(
+            f"""<StatCard
+        label="{e}s activos"
+        value={{stats?.total{e}s ?? '—'}}
+        color="#1976d2"
+      />""" for e in entities
+        )
+        return f"""import {{ useEffect, useState }} from 'react';
+import type {{ DashboardStats }} from '../types/DashboardStats';
+import {{ getDashboardStats }} from '../api/dashboardApi';
+
+interface StatCardProps {{ label: string; value: number | string; color: string; }}
+
+function StatCard({{ label, value, color }}: StatCardProps) {{
+  return (
+    <div style={{{{
+      background: '#fff',
+      borderRadius: 8,
+      padding: '24px 28px',
+      boxShadow: '0 1px 4px rgba(0,0,0,.1)',
+      borderTop: `4px solid ${{color}}`,
+      minWidth: 180,
+      flex: '1 1 180px',
+    }}}}>
+      <div style={{{{ fontSize: 32, fontWeight: 700, color }}}}>{{{value}}}</div>
+      <div style={{{{ color: '#666', marginTop: 4 }}}}>{{{label}}}</div>
+    </div>
+  );
+}}
+
+export default function DashboardPage() {{
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {{
+    getDashboardStats()
+      .then(setStats)
+      .catch(e => setError(e.message));
+  }}, []);
+
+  const colors = ['#1976d2','#388e3c','#f57c00','#7b1fa2','#c62828','#00796b','#5d4037'];
+
+  if (error) return <p style={{{{ color: 'red' }}}}>{{error}}</p>;
+
+  return (
+    <div>
+      <h2 style={{{{ marginBottom: 24 }}}}>Dashboard</h2>
+      <div style={{{{ display: 'flex', flexWrap: 'wrap', gap: 16 }}}}>
+        {cards}
+      </div>
+    </div>
+  );
+}}
+"""
+
     def generate_app_tsx(self, entities: list[str]) -> str:
         imports_pages = "\n".join(
             f"import {e}Page from './pages/{e}Page';" for e in entities
@@ -659,10 +735,10 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
         routes = "\n          ".join(
             f'<Route path="/{_camel(e)}s" element={{<{e}Page />}} />' for e in entities
         )
-        first = _camel(entities[0]) + "s" if entities else ""
 
         return f"""import {{ Link, Navigate, Route, Routes }} from 'react-router-dom';
 import {{ useAuth }} from './auth/AuthProvider';
+import DashboardPage from './pages/DashboardPage';
 {imports_pages}
 
 export default function App() {{
@@ -682,16 +758,20 @@ export default function App() {{
 
   return (
     <>
-      <nav style={{{{ display: 'flex', gap: 16, padding: '8px 16px', background: '#f5f5f5', alignItems: 'center' }}}}>
+      <nav style={{{{ display: 'flex', gap: 16, padding: '8px 16px', background: '#1976d2', alignItems: 'center' }}}}>
+        <Link to="/" style={{{{ color: '#fff', fontWeight: 700, textDecoration: 'none' }}}}>Dashboard</Link>
         {nav_links}
-        <span style={{{{ marginLeft: 'auto' }}}}>
+        <span style={{{{ marginLeft: 'auto', color: '#fff' }}}}>
           {{username}} ({{roles.join(', ')}})
         </span>
-        <button onClick={{logout}}>Cerrar sesión</button>
+        <button
+          onClick={{logout}}
+          style={{{{ background: 'rgba(255,255,255,.15)', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }}}}
+        >Cerrar sesión</button>
       </nav>
-      <main style={{{{ padding: 16 }}}}>
+      <main style={{{{ padding: 24 }}}}>
         <Routes>
-          <Route path="/" element={{<Navigate to="/{first}" replace />}} />
+          <Route path="/" element={{<DashboardPage />}} />
           {routes}
         </Routes>
       </main>

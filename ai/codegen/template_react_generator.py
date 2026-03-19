@@ -2464,6 +2464,252 @@ export default function ReportsPage() {
 }
 """
 
+    def generate_patient_portal_tsx(self) -> str:
+        """
+        Generates PatientPortalPage.tsx — public-facing patient portal.
+        Patients can search appointments by ID/email and book new ones.
+        No authentication required. Spanish UI.
+        """
+        return """import { useState } from 'react';
+
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+
+interface AppointmentRow {
+  id: string;
+  date: string;
+  dentist: string;
+  procedure: string;
+  status: string;
+}
+
+export default function PatientPortalPage() {
+  const [patientId, setPatientId] = useState('');
+  const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
+
+  const [showForm, setShowForm] = useState(false);
+  const [formDate, setFormDate] = useState('');
+  const [formProcedure, setFormProcedure] = useState('');
+  const [formNotes, setFormNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  async function handleSearch() {
+    if (!patientId.trim()) return;
+    setLoading(true);
+    setError(null);
+    setSearched(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/portal/appointments?patientId=${encodeURIComponent(patientId.trim())}`);
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const data: AppointmentRow[] = await res.json();
+      setAppointments(data);
+      setSearched(true);
+    } catch (e: any) {
+      setError(e.message ?? 'Error al buscar citas');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRequest() {
+    if (!patientId.trim() || !formDate || !formProcedure.trim()) return;
+    setSubmitting(true);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/portal/appointments/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: patientId.trim(), date: formDate, procedure: formProcedure.trim(), notes: formNotes }),
+      });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      setSuccessMsg('Su solicitud de cita ha sido registrada. Le contactaremos para confirmar.');
+      setShowForm(false);
+      setFormDate('');
+      setFormProcedure('');
+      setFormNotes('');
+    } catch (e: any) {
+      setError(e.message ?? 'Error al solicitar cita');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const STATUS_COLOR: Record<string, string> = {
+    CONFIRMED: '#2e7d32',
+    PENDING: '#e65100',
+    CANCELLED: '#b71c1c',
+    COMPLETED: '#1565c0',
+  };
+
+  return (
+    <div style={{ maxWidth: 860, margin: '40px auto', fontFamily: 'sans-serif', padding: '0 16px' }}>
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <h1 style={{ fontSize: 28, color: '#1976d2', margin: 0 }}>Portal del Paciente</h1>
+        <p style={{ color: '#666', marginTop: 8 }}>Consulte su historial de citas o solicite una nueva</p>
+      </div>
+
+      {/* Search box */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+        <input
+          type="text"
+          placeholder="Introduzca su ID de paciente o email"
+          value={patientId}
+          onChange={e => setPatientId(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSearch()}
+          style={{ flex: 1, padding: '10px 14px', fontSize: 15, border: '1px solid #ccc', borderRadius: 6 }}
+        />
+        <button
+          onClick={handleSearch}
+          disabled={loading || !patientId.trim()}
+          style={{
+            padding: '10px 20px', background: '#1976d2', color: '#fff',
+            border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 15,
+            opacity: loading || !patientId.trim() ? 0.6 : 1,
+          }}
+        >
+          {loading ? 'Buscando…' : 'Buscar'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ padding: 12, background: '#ffebee', color: '#c62828', borderRadius: 6, marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {successMsg && (
+        <div style={{ padding: 12, background: '#e8f5e9', color: '#2e7d32', borderRadius: 6, marginBottom: 16 }}>
+          {successMsg}
+        </div>
+      )}
+
+      {/* Appointments table */}
+      {searched && (
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ fontSize: 18, color: '#333', marginBottom: 12 }}>
+            Historial de citas {appointments.length === 0 && '— sin resultados'}
+          </h2>
+          {appointments.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead>
+                  <tr style={{ background: '#f5f5f5' }}>
+                    {['Fecha', 'Dentista', 'Procedimiento', 'Estado'].map(h => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', borderBottom: '2px solid #e0e0e0', color: '#555' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {appointments.map(a => (
+                    <tr key={a.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '10px 12px' }}>{a.date}</td>
+                      <td style={{ padding: '10px 12px' }}>{a.dentist}</td>
+                      <td style={{ padding: '10px 12px' }}>{a.procedure}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: 4,
+                          fontSize: 12, fontWeight: 700,
+                          color: STATUS_COLOR[a.status] ?? '#555',
+                          background: (STATUS_COLOR[a.status] ?? '#555') + '18',
+                        }}>
+                          {a.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Request appointment button */}
+      {searched && (
+        <div>
+          {!showForm ? (
+            <button
+              onClick={() => { setShowForm(true); setSuccessMsg(null); }}
+              style={{
+                padding: '10px 22px', background: '#388e3c', color: '#fff',
+                border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 15,
+              }}
+            >
+              Solicitar cita
+            </button>
+          ) : (
+            <div style={{
+              background: '#fafafa', border: '1px solid #e0e0e0',
+              borderRadius: 8, padding: 24, maxWidth: 480,
+            }}>
+              <h3 style={{ margin: '0 0 16px', color: '#333' }}>Solicitar nueva cita</h3>
+
+              <label style={{ display: 'block', marginBottom: 12 }}>
+                <span style={{ fontSize: 13, color: '#555', display: 'block', marginBottom: 4 }}>Fecha *</span>
+                <input
+                  type="date"
+                  value={formDate}
+                  onChange={e => setFormDate(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 5, fontSize: 14, boxSizing: 'border-box' }}
+                />
+              </label>
+
+              <label style={{ display: 'block', marginBottom: 12 }}>
+                <span style={{ fontSize: 13, color: '#555', display: 'block', marginBottom: 4 }}>Procedimiento *</span>
+                <input
+                  type="text"
+                  placeholder="Ej: Limpieza dental, Empaste..."
+                  value={formProcedure}
+                  onChange={e => setFormProcedure(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 5, fontSize: 14, boxSizing: 'border-box' }}
+                />
+              </label>
+
+              <label style={{ display: 'block', marginBottom: 16 }}>
+                <span style={{ fontSize: 13, color: '#555', display: 'block', marginBottom: 4 }}>Notas adicionales</span>
+                <textarea
+                  rows={3}
+                  placeholder="Observaciones o preferencias..."
+                  value={formNotes}
+                  onChange={e => setFormNotes(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 5, fontSize: 14, resize: 'vertical', boxSizing: 'border-box' }}
+                />
+              </label>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={handleRequest}
+                  disabled={submitting || !formDate || !formProcedure.trim()}
+                  style={{
+                    padding: '9px 20px', background: '#388e3c', color: '#fff',
+                    border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14,
+                    opacity: submitting || !formDate || !formProcedure.trim() ? 0.6 : 1,
+                  }}
+                >
+                  {submitting ? 'Enviando…' : 'Enviar solicitud'}
+                </button>
+                <button
+                  onClick={() => setShowForm(false)}
+                  style={{
+                    padding: '9px 16px', background: '#fff', color: '#555',
+                    border: '1px solid #ccc', borderRadius: 6, cursor: 'pointer', fontSize: 14,
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
     def generate_notification_bell(self) -> str:
         """
         Generates NotificationBell.tsx — bell icon with unread badge and dropdown panel.

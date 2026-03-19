@@ -1251,6 +1251,13 @@ public class SecurityConfig {{
         except Exception as e:
             f.log(f"⚠️ Production Report generation error: {e}")
 
+        # ---- Patient Portal Controller (Round 24) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/PatientPortalController.java"] = \
+                tg.generate_patient_portal_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Patient Portal generation error: {e}")
+
         # ---- Integration tests (Testcontainers) ----
         if dashboard_modules:
             try:
@@ -1383,6 +1390,8 @@ public class SecurityConfig {{
             "frontend/src/components/TreatmentPlan/TreatmentPlanEditor.tsx": gen.generate_treatment_plan_editor_tsx(),
             # Round 25: Production Reports / BI
             "frontend/src/pages/ReportsPage.tsx": gen.generate_reports_page_tsx(),
+            # Round 24: Patient Portal
+            "frontend/src/pages/PatientPortalPage.tsx": gen.generate_patient_portal_tsx(),
         }
         for rel, content in auth_files.items():
             try:

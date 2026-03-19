@@ -1160,6 +1160,8 @@ public class SecurityConfig {{
         async_config_java = tg.generate_async_config(config_pkg)
         cache_config_java = tg.generate_cache_config(config_pkg)
         openapi_config_java = tg.generate_openapi_config(config_pkg, f.project_name, f.project_slug)
+        api_paths = [f"{mod['name'].lower()}s" for mod in (dashboard_modules or [])] + ["dashboard"]
+        rate_limit_filter_java = tg.generate_rate_limit_filter(config_pkg, api_paths)
         domain_event_interface = tg.generate_domain_event_interface(pkg)
 
         # ---- Write all files ----
@@ -1178,6 +1180,7 @@ public class SecurityConfig {{
             f"backend/src/main/java/{pkg_path}/config/AsyncConfig.java": async_config_java,
             f"backend/src/main/java/{pkg_path}/config/CacheConfig.java": cache_config_java,
             f"backend/src/main/java/{pkg_path}/config/OpenApiConfig.java": openapi_config_java,
+            f"backend/src/main/java/{pkg_path}/config/RateLimitFilter.java": rate_limit_filter_java,
             f"backend/src/main/java/{pkg_path}/config/GlobalExceptionHandler.java": exception_handler_java,
         }
 

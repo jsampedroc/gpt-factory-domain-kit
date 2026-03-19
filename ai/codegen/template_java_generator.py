@@ -402,8 +402,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {{
@@ -425,11 +425,14 @@ public class GlobalExceptionHandler {{
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {{
-        List<String> errors = ex.getBindingResult().getFieldErrors().stream()
-                .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
-                .toList();
-        Map<String, Object> body = buildBody(HttpStatus.BAD_REQUEST, "Validation failed");
-        body.put("errors", errors);
+        Map<String, String> fieldErrors = ex.getBindingResult().getFieldErrors().stream()
+                .collect(Collectors.toMap(
+                        fe -> fe.getField(),
+                        fe -> fe.getDefaultMessage() != null ? fe.getDefaultMessage() : "Valor inválido",
+                        (first, second) -> first
+                ));
+        Map<String, Object> body = buildBody(HttpStatus.BAD_REQUEST, "Error de validación");
+        body.put("errors", fieldErrors);
         return ResponseEntity.badRequest().body(body);
     }}
 
@@ -862,12 +865,14 @@ public class {use_case_name}UseCase {{
 """
 
     def generate_usecase_command(self, package_name, use_case_name, inputs):
-        """Generates a Command record (input DTO for a command use case)."""
+        """Generates a Command record (input DTO for a command use case) with Bean Validation annotations."""
         inputs = self._dedup_inputs(inputs)
         imports = self._imports_for_inputs(inputs)
-        imports_str = ("".join(f"import {i};\n" for i in sorted(imports)) + "\n") if imports else ""
-        fields_str = ",\n    ".join(
-            f"{inp.get('type', 'String')} {inp.get('name', 'value')}"
+        validation_imports = self._validation_imports_for_inputs(inputs)
+        all_imports = imports | validation_imports
+        imports_str = ("".join(f"import {i};\n" for i in sorted(all_imports)) + "\n") if all_imports else ""
+        fields_str = ",\n\n    ".join(
+            self._annotated_field(inp)
             for inp in (inputs or [])
         ) if inputs else ""
 
@@ -882,6 +887,77 @@ public class {use_case_name}UseCase {{
 
 public record {use_case_name}Command() {{}}
 """
+
+    @staticmethod
+    def _annotated_field(inp):
+        """Returns a field declaration with appropriate Bean Validation annotations."""
+        field_type = inp.get("type", "String")
+        name = inp.get("name", "value")
+        annotations = []
+
+        if field_type == "String":
+            if any(kw in name.lower() for kw in ("email", "mail")):
+                annotations.append('@NotBlank(message = "El campo es obligatorio")')
+                annotations.append('@Email(message = "El email no es válido")')
+                annotations.append('@Size(max = 200, message = "El email no puede superar 200 caracteres")')
+            elif any(kw in name.lower() for kw in ("description", "descripcion", "notes", "notas", "comment")):
+                annotations.append('@NotBlank(message = "La descripción es obligatoria")')
+                annotations.append('@Size(max = 500, message = "La descripción no puede superar 500 caracteres")')
+            else:
+                label = name
+                annotations.append(f'@NotBlank(message = "El campo {label} es obligatorio")')
+                annotations.append(f'@Size(max = 100, message = "El campo {label} no puede superar 100 caracteres")')
+        elif field_type == "UUID":
+            if name.endswith("Id") or name == "id":
+                label = name
+                annotations.append(f'@NotNull(message = "El campo {label} es obligatorio")')
+        elif field_type in ("LocalDate",):
+            if any(kw in name.lower() for kw in ("birth", "nacimiento")):
+                annotations.append('@NotNull(message = "La fecha es obligatoria")')
+                annotations.append('@Past(message = "La fecha debe ser en el pasado")')
+            else:
+                annotations.append('@NotNull(message = "La fecha es obligatoria")')
+        elif field_type in ("LocalDateTime",):
+            annotations.append('@NotNull(message = "La fecha y hora son obligatorias")')
+            if any(kw in name.lower() for kw in ("appointment", "cita", "schedule", "start", "end")):
+                annotations.append('@FutureOrPresent(message = "La fecha debe ser presente o futura")')
+        elif field_type not in ("int", "long", "double", "boolean", "float"):
+            # Value objects, enums, etc.
+            annotations.append(f'@NotNull(message = "El campo {name} es obligatorio")')
+            if "Money" in field_type or "Amount" in field_type or "Price" in field_type:
+                annotations.append('@Valid')
+
+        ann_str = "\n    ".join(annotations)
+        if ann_str:
+            return f"{ann_str}\n    {field_type} {name}"
+        return f"{field_type} {name}"
+
+    @staticmethod
+    def _validation_imports_for_inputs(inputs):
+        """Returns validation annotation imports needed for the given fields."""
+        needed = set()
+        for inp in (inputs or []):
+            field_type = inp.get("type", "String")
+            name = inp.get("name", "value")
+            if field_type == "String":
+                needed.add("jakarta.validation.constraints.NotBlank")
+                needed.add("jakarta.validation.constraints.Size")
+                if any(kw in name.lower() for kw in ("email", "mail")):
+                    needed.add("jakarta.validation.constraints.Email")
+            elif field_type == "UUID":
+                if name.endswith("Id") or name == "id":
+                    needed.add("jakarta.validation.constraints.NotNull")
+            elif field_type in ("LocalDate", "LocalDateTime"):
+                needed.add("jakarta.validation.constraints.NotNull")
+                if field_type == "LocalDate" and any(kw in name.lower() for kw in ("birth", "nacimiento")):
+                    needed.add("jakarta.validation.constraints.Past")
+                if field_type == "LocalDateTime":
+                    needed.add("jakarta.validation.constraints.FutureOrPresent")
+            elif field_type not in ("int", "long", "double", "boolean", "float"):
+                needed.add("jakarta.validation.constraints.NotNull")
+                if "Money" in field_type or "Amount" in field_type or "Price" in field_type:
+                    needed.add("jakarta.validation.Valid")
+        return needed
 
     def generate_usecase_query(self, package_name, use_case_name, inputs):
         """Generates a Query record. ListAll* queries automatically get page/size/search fields."""
@@ -1123,6 +1199,7 @@ import {uc_pkg}.{upd_uc};
 import {uc_pkg}.{upd_cmd};
 import {uc_pkg}.{deact_uc};
 import {uc_pkg}.{deact_cmd};
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -1174,13 +1251,13 @@ public class {class_name} {{
     }}
 
     @PostMapping
-    public ResponseEntity<{entity}Response> create(@RequestBody {reg_cmd} cmd) {{
+    public ResponseEntity<{entity}Response> create(@RequestBody @Valid {reg_cmd} cmd) {{
         return ResponseEntity.ok(toResponse(register.execute(cmd)));
     }}
 
     @PutMapping("/{{id}}")
     public ResponseEntity<{entity}Response> updateOne(@PathVariable("id") UUID id,
-                                                       @RequestBody {upd_cmd} cmd) {{
+                                                       @RequestBody @Valid {upd_cmd} cmd) {{
         return ResponseEntity.ok(toResponse(update.execute(cmd)));
     }}
 

@@ -142,7 +142,7 @@ export async function create{entity}(data: Omit<{entity}, 'id'>): Promise<{entit
     method: 'POST',
     body: JSON.stringify(data),
   }});
-  if (!res.ok) throw new Error('Failed to create {lower}');
+  if (!res.ok) throw res;
   return res.json();
 }}
 
@@ -151,7 +151,7 @@ export async function update{entity}(id: string, data: Partial<{entity}>): Promi
     method: 'PUT',
     body: JSON.stringify(data),
   }});
-  if (!res.ok) throw new Error(`Failed to update {lower} ${{id}}`);
+  if (!res.ok) throw res;
   return res.json();
 }}
 
@@ -284,6 +284,45 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
     # Form component                                                       #
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _input_attrs_for_field(f: dict) -> dict:
+        """Returns HTML input type and validation attributes based on Java type."""
+        java_type = f.get("type", "String")
+        name = f.get("name", "")
+        attrs: dict = {}
+
+        if java_type == "LocalDate" or "Date" in name.lower():
+            attrs["type"] = "date"
+            attrs["required"] = True
+        elif java_type == "LocalDateTime" or "DateTime" in java_type:
+            attrs["type"] = "datetime-local"
+            attrs["required"] = True
+        elif any(kw in name.lower() for kw in ("email", "mail")):
+            attrs["type"] = "email"
+            attrs["required"] = True
+            attrs["maxLength"] = 200
+        elif java_type in ("int", "Integer", "long", "Long", "double", "Double", "float", "Float"):
+            attrs["type"] = "number"
+            attrs["step"] = "any"
+        elif java_type == "String":
+            attrs["type"] = "text"
+            attrs["required"] = True
+            if any(kw in name.lower() for kw in ("description", "descripcion", "notes", "notas")):
+                attrs["maxLength"] = 500
+            else:
+                attrs["maxLength"] = 100
+        elif java_type == "UUID" or java_type.endswith("Id"):
+            attrs["type"] = "text"
+            attrs["required"] = True
+            attrs["pattern"] = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+            attrs["title"] = "UUID válido"
+        else:
+            # enums, value objects, etc.
+            attrs["type"] = "text"
+            attrs["required"] = True
+
+        return attrs
+
     def generate_form_component(self, entity: str, fields: list) -> str:
         lower = _camel(entity)
         # Editable fields (exclude id and list types)
@@ -297,17 +336,37 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
             f"{f['name']}: item?.{f['name']} ?? ''" for f in editable
         ) if editable else ""
 
-        inputs = "\n        ".join(
-            f"""<div>
-          <label>{_label(f['name'])}</label>
-          <input
-            name="{f['name']}"
-            value={{form.{f['name']} ?? ''}}
-            onChange={{e => setForm(prev => ({{ ...prev, {f['name']}: e.target.value }}))}}
-          />
-        </div>"""
-            for f in editable
-        )
+        def _input_el(f):
+            attrs = self._input_attrs_for_field(f)
+            attr_strs = []
+            for k, v in attrs.items():
+                if k == "required" and v:
+                    attr_strs.append("required")
+                elif k == "type":
+                    attr_strs.append(f'type="{v}"')
+                elif k == "maxLength":
+                    attr_strs.append(f"maxLength={{{v}}}")
+                elif k == "step":
+                    attr_strs.append(f'step="{v}"')
+                elif k == "pattern":
+                    attr_strs.append(f'pattern="{v}"')
+                elif k == "title":
+                    attr_strs.append(f'title="{v}"')
+            attr_str = " ".join(attr_strs)
+            return (
+                f"<div>\n"
+                f"          <label style={{{{ display: 'block', marginBottom: 4, fontWeight: 500 }}}}>{_label(f['name'])}</label>\n"
+                f"          <input\n"
+                f"            {attr_str}\n"
+                f"            name=\"{f['name']}\"\n"
+                f"            value={{form.{f['name']} ?? ''}}\n"
+                f"            onChange={{{{e => setForm(prev => ({{ ...prev, {f['name']}: e.target.value }}));}}}}\n"
+                f"            style={{{{ width: '100%', padding: '6px 10px', boxSizing: 'border-box', borderRadius: 4, border: '1px solid #ccc' }}}}\n"
+                f"          />\n"
+                f"        </div>"
+            )
+
+        inputs = "\n        ".join(_input_el(f) for f in editable)
 
         return f"""import {{ useState }} from 'react';
 import type {{ {entity} }} from '../../types/{entity}';
@@ -322,12 +381,12 @@ interface Props {{
 export default function {entity}Form({{ item, onSaved, onCancel }}: Props) {{
   const [form, setForm] = useState({{ {state_init} }});
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
 
   const handleSubmit = async (e: React.FormEvent) => {{
     e.preventDefault();
     setSaving(true);
-    setError(null);
+    setErrors([]);
     try {{
       if (item?.id) {{
         await update{entity}(item.id, form as Partial<{entity}>);
@@ -336,20 +395,38 @@ export default function {entity}Form({{ item, onSaved, onCancel }}: Props) {{
       }}
       onSaved();
     }} catch (err: unknown) {{
-      setError(err instanceof Error ? err.message : 'Unexpected error');
+      if (err instanceof Response) {{
+        const body = await err.json().catch(() => ({{}}));
+        const msgs: string[] = body.errors
+          ? Object.values(body.errors as Record<string, string>)
+          : [body.message ?? 'Error desconocido'];
+        setErrors(msgs);
+      }} else {{
+        setErrors([err instanceof Error ? err.message : 'Error inesperado']);
+      }}
     }} finally {{
       setSaving(false);
     }}
   }};
 
   return (
-    <form onSubmit={{handleSubmit}} style={{{{ display: 'flex', flexDirection: 'column', gap: 12 }}}}>
-      <h2>{{item ? 'Edit' : 'New'}} {entity}</h2>
+    <form onSubmit={{handleSubmit}} noValidate style={{{{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}}}>
+      <h2 style={{{{ marginBottom: 8 }}}}>{{item ? 'Editar' : 'Nuevo'}} {entity}</h2>
       {inputs}
-      {{error && <p style={{{{ color: 'red' }}}}>{{error}}</p>}}
+      {{errors.length > 0 && (
+        <ul style={{{{ color: 'red', margin: 0, paddingLeft: 20 }}}}>
+          {{errors.map((m, i) => <li key={{i}}>{{m}}</li>)}}
+        </ul>
+      )}}
       <div style={{{{ display: 'flex', gap: 8 }}}}>
-        <button type="submit" disabled={{saving}}>{{saving ? 'Saving…' : 'Save'}}</button>
-        <button type="button" onClick={{onCancel}}>Cancel</button>
+        <button type="submit" disabled={{saving}}
+          style={{{{ padding: '8px 20px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}}}>
+          {{saving ? 'Guardando…' : 'Guardar'}}
+        </button>
+        <button type="button" onClick={{onCancel}}
+          style={{{{ padding: '8px 20px', borderRadius: 4, cursor: 'pointer' }}}}>
+          Cancelar
+        </button>
       </div>
     </form>
   );

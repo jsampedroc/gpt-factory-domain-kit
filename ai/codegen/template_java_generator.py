@@ -390,6 +390,48 @@ public class DashboardController {{
 
         return files
 
+    def generate_openapi_config(self, package_name: str, project_name: str, project_slug: str) -> str:
+        """OpenAPI 3 config with JWT Bearer security scheme."""
+        title = project_name or project_slug or "API"
+        return f"""package {package_name};
+
+import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
+import io.swagger.v3.oas.annotations.security.SecurityScheme;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Contact;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.info.License;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@SecurityScheme(
+    name = "bearerAuth",
+    type = SecuritySchemeType.HTTP,
+    scheme = "bearer",
+    bearerFormat = "JWT",
+    description = "JWT token obtenido de Keycloak"
+)
+public class OpenApiConfig {{
+
+    @Bean
+    public OpenAPI openAPI() {{
+        return new OpenAPI()
+                .info(new Info()
+                        .title("{title} API")
+                        .description("API REST para la gestión de {title}. " +
+                                     "Autentícate con Keycloak y usa el token Bearer.")
+                        .version("1.0.0")
+                        .contact(new Contact()
+                                .name("{title} Team")
+                                .email("dev@{project_slug}.com"))
+                        .license(new License()
+                                .name("Apache 2.0")
+                                .url("https://www.apache.org/licenses/LICENSE-2.0")));
+    }}
+}}
+"""
+
     def generate_async_config(self, package_name: str) -> str:
         """@EnableAsync configuration class."""
         return f"""package {package_name};
@@ -1356,6 +1398,9 @@ import {uc_pkg}.{upd_uc};
 import {uc_pkg}.{upd_cmd};
 import {uc_pkg}.{deact_uc};
 import {uc_pkg}.{deact_cmd};
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -1363,6 +1408,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Tag(name = "{entity}s", description = "Gestión de {entity}s")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/{url_path}")
 @CrossOrigin(origins = "*")
@@ -1387,6 +1434,7 @@ public class {class_name} {{
         this.deactivate = deactivate;
     }}
 
+    @Operation(summary = "Listar todos (paginado + búsqueda)")
     @GetMapping
     public PageResponse<{entity}Response> getAll(
             @RequestParam(defaultValue = "0")  int page,
@@ -1399,6 +1447,7 @@ public class {class_name} {{
                 result.total(), result.totalPages(), result.isLast());
     }}
 
+    @Operation(summary = "Obtener por ID")
     @GetMapping("/{{id}}")
     public ResponseEntity<{entity}Response> getOne(@PathVariable("id") UUID id) {{
         return getById.execute(new {get_q}(id))
@@ -1407,17 +1456,20 @@ public class {class_name} {{
                 .orElse(ResponseEntity.notFound().build());
     }}
 
+    @Operation(summary = "Crear nuevo registro")
     @PostMapping
     public ResponseEntity<{entity}Response> create(@RequestBody @Valid {reg_cmd} cmd) {{
         return ResponseEntity.ok(toResponse(register.execute(cmd)));
     }}
 
+    @Operation(summary = "Actualizar registro existente")
     @PutMapping("/{{id}}")
     public ResponseEntity<{entity}Response> updateOne(@PathVariable("id") UUID id,
                                                        @RequestBody @Valid {upd_cmd} cmd) {{
         return ResponseEntity.ok(toResponse(update.execute(cmd)));
     }}
 
+    @Operation(summary = "Desactivar registro (soft delete)")
     @DeleteMapping("/{{id}}")
     public ResponseEntity<Void> deleteOne(@PathVariable("id") UUID id) {{
         deactivate.execute(new {deact_cmd}(id));

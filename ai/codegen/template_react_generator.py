@@ -182,6 +182,7 @@ import type {{ {entity} }} from '../../types/{entity}';
 import type {{ PageResponse }} from '../../types/PageResponse';
 import {{ getAll{entity}s, delete{entity} }} from '../../api/{lower}Api';
 import {{ useToast }} from '../../context/ToastContext';
+import {{ useI18n }} from '../../context/I18nContext';
 
 interface Props {{
   onEdit: (item: {entity}) => void;
@@ -197,6 +198,7 @@ const tdStyle: React.CSSProperties = {{ padding: '8px 12px', borderBottom: '1px 
 
 export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
   const {{ showToast }} = useToast();
+  const {{ t }} = useI18n();
   const [page, setPage] = useState<PageResponse<{entity}> | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [search, setSearch] = useState('');
@@ -214,9 +216,9 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
   useEffect(() => {{ load(currentPage, search); }}, [refresh, currentPage, search, load]);
 
   const handleDelete = async (id: string) => {{
-    if (!window.confirm('¿Eliminar este {lower}?')) return;
+    if (!window.confirm(t('confirmDelete'))) return;
     await delete{entity}(id);
-    showToast('{entity} eliminado correctamente', 'info');
+    showToast(`${{t('{entity}' as any)}} ${{t('deleted')}}`, 'info');
     load(currentPage, search);
   }};
 
@@ -228,10 +230,10 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
   return (
     <div>
       <div style={{{{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}}}>
-        <h2 style={{{{ margin: 0 }}}}>{{page?.total ?? ''}} {entity}s</h2>
+        <h2 style={{{{ margin: 0 }}}}>{{page?.total ?? ''}} {{t('{entity}s' as any)}}</h2>
         <div style={{{{ display: 'flex', gap: 8 }}}}>
           <input
-            placeholder="Buscar…"
+            placeholder={{t('search')}}
             value={{search}}
             onChange={{handleSearch}}
             style={{{{ padding: '6px 12px', border: '1px solid #ddd', borderRadius: 4, width: 220 }}}}
@@ -240,17 +242,17 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
             onClick={{onNew}}
             style={{{{ padding: '6px 16px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}}}
           >
-            + Nuevo
+            + {{t('new')}}
           </button>
         </div>
       </div>
 
       {{error && <p style={{{{ color: 'red' }}}}>{{error}}</p>}}
-      {{loading && <p style={{{{ color: '#999' }}}}>Cargando…</p>}}
+      {{loading && <p style={{{{ color: '#999' }}}}>{{t('loading')}}</p>}}
 
       <table style={{{{ width: '100%', borderCollapse: 'collapse' }}}}>
         <thead>
-          <tr>{headers}<th style={{{{thStyle}}}}>Acciones</th></tr>
+          <tr>{headers}<th style={{{{thStyle}}}}>{{t('actions')}}</th></tr>
         </thead>
         <tbody>
           {{(page?.content ?? []).map({lower} => (
@@ -260,11 +262,11 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
                 <button
                   onClick={{() => onEdit({lower})}}
                   style={{{{ marginRight: 6, padding: '3px 10px', cursor: 'pointer' }}}}
-                >Editar</button>
+                >{{t('edit')}}</button>
                 <button
                   onClick={{() => handleDelete({lower}.id)}}
                   style={{{{ padding: '3px 10px', cursor: 'pointer', color: '#c62828' }}}}
-                >Eliminar</button>
+                >{{t('delete')}}</button>
               </td>
             </tr>
           ))}}
@@ -273,9 +275,9 @@ export default function {entity}List({{ onEdit, onNew, refresh }}: Props) {{
 
       {{page && page.totalPages > 1 && (
         <div style={{{{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}}}>
-          <button disabled={{currentPage === 0}} onClick={{() => setCurrentPage(p => p - 1)}}>‹ Anterior</button>
-          <span>Página {{currentPage + 1}} de {{page.totalPages}}</span>
-          <button disabled={{page.last}} onClick={{() => setCurrentPage(p => p + 1)}}>Siguiente ›</button>
+          <button disabled={{currentPage === 0}} onClick={{() => setCurrentPage(p => p - 1)}}>‹</button>
+          <span>{{t('page')}} {{currentPage + 1}} {{t('of')}} {{page.totalPages}}</span>
+          <button disabled={{page.last}} onClick={{() => setCurrentPage(p => p + 1)}}>›</button>
         </div>
       )}}
     </div>
@@ -518,6 +520,10 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    // sockjs-client uses Node.js 'global' — polyfill for the browser
+    global: 'globalThis',
+  },
   server: {
     port: 5173,
   },
@@ -952,7 +958,7 @@ export default function FileUpload({{ entityType, entityId }}: Props) {{
         """
         Generates LanguageSwitcher.tsx — ES/EN toggle button for the navbar.
         """
-        return """import { useI18n } from '../../context/I18nContext';
+        return """import { useI18n } from '../context/I18nContext';
 
 export default function LanguageSwitcher() {
   const { locale, setLocale } = useI18n();

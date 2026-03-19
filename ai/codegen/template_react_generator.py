@@ -2801,3 +2801,1421 @@ export default function NotificationBell() {
   );
 }
 """
+
+    def generate_prescription_page_tsx(self) -> str:
+        """
+        Generates PrescriptionPage.tsx — Electronic prescriptions management page.
+        List view + create form with dynamic medication lines.
+        All text in Spanish. Pure inline styles.
+        """
+        return r"""import { useState } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface PrescriptionLine {
+  medication: string;
+  dosage: string;
+  frequency: string;
+  durationDays: number;
+  instructions: string;
+}
+
+interface PrescriptionResponse {
+  id: string;
+  patientId: string;
+  patientName: string;
+  dentistId: string;
+  dentistName: string;
+  date: string;
+  diagnosis: string;
+  lines: PrescriptionLine[];
+  notes: string;
+  status: string;
+  createdAt: string;
+}
+
+const EMPTY_LINE: PrescriptionLine = {
+  medication: '',
+  dosage: '',
+  frequency: '',
+  durationDays: 7,
+  instructions: '',
+};
+
+export default function PrescriptionPage() {
+  const [prescriptions, setPrescriptions] = useState<PrescriptionResponse[]>([]);
+  const [searchPatientId, setSearchPatientId] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Form state
+  const [patientId, setPatientId] = useState('');
+  const [dentistId, setDentistId] = useState('');
+  const [diagnosis, setDiagnosis] = useState('');
+  const [notes, setNotes] = useState('');
+  const [lines, setLines] = useState<PrescriptionLine[]>([{ ...EMPTY_LINE }]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const fetchPrescriptions = async () => {
+    if (!searchPatientId.trim()) {
+      setError('Introduce el ID del paciente para buscar.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/prescriptions/patient/${searchPatientId.trim()}`);
+      const data: PrescriptionResponse[] = await res.json();
+      setPrescriptions(data);
+    } catch (e: any) {
+      setError(e.message ?? 'Error al cargar recetas');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVoid = async (id: string) => {
+    if (!confirm('¿Seguro que deseas anular esta receta?')) return;
+    try {
+      const res = await apiFetch(
+        `${API_BASE}/api/prescriptions/${id}`,
+        { method: 'DELETE' }
+      );
+      const updated: PrescriptionResponse = await res.json();
+      setPrescriptions(prev => prev.map(p => (p.id === id ? updated : p)));
+    } catch (e: any) {
+      alert('Error al anular: ' + (e.message ?? 'desconocido'));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const body = {
+        patientId,
+        dentistId: dentistId || null,
+        date: new Date().toISOString().split('T')[0],
+        diagnosis,
+        lines,
+        notes,
+      };
+      const res = await apiFetch(`${API_BASE}/api/prescriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const created: PrescriptionResponse = await res.json();
+      setPrescriptions(prev => [created, ...prev]);
+      setShowForm(false);
+      setPatientId('');
+      setDentistId('');
+      setDiagnosis('');
+      setNotes('');
+      setLines([{ ...EMPTY_LINE }]);
+    } catch (e: any) {
+      alert('Error al crear receta: ' + (e.message ?? 'desconocido'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const updateLine = (index: number, field: keyof PrescriptionLine, value: string | number) => {
+    setLines(prev => prev.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
+  };
+
+  const addLine = () => setLines(prev => [...prev, { ...EMPTY_LINE }]);
+
+  const removeLine = (index: number) => {
+    if (lines.length === 1) return;
+    setLines(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const statusBadgeStyle = (status: string) => ({
+    display: 'inline-block',
+    padding: '2px 10px',
+    borderRadius: 12,
+    fontSize: 12,
+    fontWeight: 700,
+    background: status === 'ACTIVA' ? '#e8f5e9' : '#fce4ec',
+    color: status === 'ACTIVA' ? '#2e7d32' : '#c62828',
+  });
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Recetas Electrónicas</h2>
+        <button
+          onClick={() => setShowForm(v => !v)}
+          style={{
+            background: '#1976d2', color: '#fff', border: 'none',
+            borderRadius: 6, padding: '8px 20px', cursor: 'pointer', fontWeight: 600,
+          }}
+        >
+          {showForm ? 'Cancelar' : '+ Nueva receta'}
+        </button>
+      </div>
+
+      {/* Search bar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <input
+          type="text"
+          placeholder="ID de paciente (UUID)"
+          value={searchPatientId}
+          onChange={e => setSearchPatientId(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && fetchPrescriptions()}
+          style={{
+            flex: 1, padding: '8px 12px', border: '1px solid #ccc',
+            borderRadius: 6, fontSize: 14,
+          }}
+        />
+        <button
+          onClick={fetchPrescriptions}
+          style={{
+            background: '#0288d1', color: '#fff', border: 'none',
+            borderRadius: 6, padding: '8px 20px', cursor: 'pointer', fontWeight: 600,
+          }}
+        >
+          Buscar
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ background: '#ffebee', color: '#c62828', padding: '10px 16px', borderRadius: 6, marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Create form */}
+      {showForm && (
+        <div style={{
+          background: '#f9fafb', border: '1px solid #e0e0e0', borderRadius: 8,
+          padding: 24, marginBottom: 24,
+        }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 17 }}>Nueva receta electrónica</h3>
+          <form onSubmit={handleSubmit}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>
+                  ID Paciente *
+                </label>
+                <input
+                  required
+                  value={patientId}
+                  onChange={e => setPatientId(e.target.value)}
+                  placeholder="UUID del paciente"
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 6, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>
+                  ID Dentista
+                </label>
+                <input
+                  value={dentistId}
+                  onChange={e => setDentistId(e.target.value)}
+                  placeholder="UUID del dentista (opcional)"
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 6, boxSizing: 'border-box' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>
+                Diagnóstico *
+              </label>
+              <input
+                required
+                value={diagnosis}
+                onChange={e => setDiagnosis(e.target.value)}
+                placeholder="Diagnóstico clínico"
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 6, boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Medication lines */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontWeight: 600, fontSize: 13 }}>Medicamentos *</label>
+                <button
+                  type="button"
+                  onClick={addLine}
+                  style={{
+                    background: '#e3f2fd', color: '#1565c0', border: '1px solid #90caf9',
+                    borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: 13,
+                  }}
+                >
+                  + Añadir medicamento
+                </button>
+              </div>
+
+              {lines.map((line, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8,
+                    padding: 12, marginBottom: 10,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: '#555' }}>Medicamento {idx + 1}</span>
+                    {lines.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeLine(idx)}
+                        style={{
+                          background: '#ffebee', color: '#c62828', border: 'none',
+                          borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 12,
+                        }}
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10, marginBottom: 8 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, marginBottom: 2, color: '#666' }}>Medicamento</label>
+                      <input
+                        required
+                        value={line.medication}
+                        onChange={e => updateLine(idx, 'medication', e.target.value)}
+                        placeholder="Nombre del medicamento"
+                        style={{ width: '100%', padding: '6px 8px', border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box', fontSize: 13 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, marginBottom: 2, color: '#666' }}>Dosis</label>
+                      <input
+                        required
+                        value={line.dosage}
+                        onChange={e => updateLine(idx, 'dosage', e.target.value)}
+                        placeholder="500mg"
+                        style={{ width: '100%', padding: '6px 8px', border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box', fontSize: 13 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, marginBottom: 2, color: '#666' }}>Frecuencia</label>
+                      <input
+                        required
+                        value={line.frequency}
+                        onChange={e => updateLine(idx, 'frequency', e.target.value)}
+                        placeholder="Cada 8h"
+                        style={{ width: '100%', padding: '6px 8px', border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box', fontSize: 13 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, marginBottom: 2, color: '#666' }}>Duración (días)</label>
+                      <input
+                        required
+                        type="number"
+                        min={1}
+                        value={line.durationDays}
+                        onChange={e => updateLine(idx, 'durationDays', parseInt(e.target.value) || 1)}
+                        style={{ width: '100%', padding: '6px 8px', border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box', fontSize: 13 }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, marginBottom: 2, color: '#666' }}>Instrucciones</label>
+                    <input
+                      value={line.instructions}
+                      onChange={e => updateLine(idx, 'instructions', e.target.value)}
+                      placeholder="Instrucciones especiales (opcional)"
+                      style={{ width: '100%', padding: '6px 8px', border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box', fontSize: 13 }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: 13 }}>
+                Notas
+              </label>
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                rows={3}
+                placeholder="Observaciones adicionales..."
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid #ccc', borderRadius: 6, boxSizing: 'border-box', resize: 'vertical', fontSize: 14 }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button
+                type="submit"
+                disabled={submitting}
+                style={{
+                  background: '#2e7d32', color: '#fff', border: 'none',
+                  borderRadius: 6, padding: '10px 28px', cursor: 'pointer', fontWeight: 700, fontSize: 15,
+                  opacity: submitting ? 0.7 : 1,
+                }}
+              >
+                {submitting ? 'Guardando...' : 'Guardar receta'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                style={{
+                  background: '#fff', color: '#555', border: '1px solid #ccc',
+                  borderRadius: 6, padding: '10px 20px', cursor: 'pointer',
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Prescriptions table */}
+      {loading ? (
+        <p style={{ color: '#999', textAlign: 'center', marginTop: 40 }}>Cargando recetas...</p>
+      ) : prescriptions.length === 0 && !showForm ? (
+        <div style={{ textAlign: 'center', color: '#aaa', marginTop: 60 }}>
+          <p style={{ fontSize: 16 }}>Busca por ID de paciente para ver sus recetas.</p>
+        </div>
+      ) : prescriptions.length > 0 ? (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: '#f5f5f5', textAlign: 'left' }}>
+                <th style={{ padding: '10px 12px', borderBottom: '2px solid #e0e0e0' }}>Paciente</th>
+                <th style={{ padding: '10px 12px', borderBottom: '2px solid #e0e0e0' }}>Dentista</th>
+                <th style={{ padding: '10px 12px', borderBottom: '2px solid #e0e0e0' }}>Fecha</th>
+                <th style={{ padding: '10px 12px', borderBottom: '2px solid #e0e0e0' }}>Diagnóstico</th>
+                <th style={{ padding: '10px 12px', borderBottom: '2px solid #e0e0e0' }}>Medicamentos</th>
+                <th style={{ padding: '10px 12px', borderBottom: '2px solid #e0e0e0' }}>Estado</th>
+                <th style={{ padding: '10px 12px', borderBottom: '2px solid #e0e0e0' }}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {prescriptions.map(p => (
+                <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 600 }}>{p.patientName}</div>
+                    <div style={{ fontSize: 11, color: '#aaa' }}>{p.patientId.substring(0, 8)}...</div>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>{p.dentistName}</td>
+                  <td style={{ padding: '10px 12px' }}>{p.date}</td>
+                  <td style={{ padding: '10px 12px', maxWidth: 200 }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.diagnosis}
+                    </div>
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                    <span style={{
+                      display: 'inline-block', background: '#e3f2fd', color: '#1565c0',
+                      borderRadius: 12, padding: '2px 10px', fontWeight: 700, fontSize: 13,
+                    }}>
+                      {p.lines.length}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span style={statusBadgeStyle(p.status)}>{p.status}</span>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => window.print()}
+                        style={{
+                          background: '#e8f5e9', color: '#2e7d32', border: 'none',
+                          borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12,
+                        }}
+                      >
+                        Imprimir
+                      </button>
+                      {p.status === 'ACTIVA' && (
+                        <button
+                          onClick={() => handleVoid(p.id)}
+                          style={{
+                            background: '#fce4ec', color: '#c62828', border: 'none',
+                            borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12,
+                          }}
+                        >
+                          Anular
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+"""
+
+    def generate_stock_page_tsx(self) -> str:
+        """
+        Generates StockPage.tsx — clinic supply/inventory management.
+        Features: table with status badges, low-stock alert tab, add item form,
+        in/out movement modal, search filter. Spanish UI. Round 28.
+        """
+        return """import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface StockItem {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  minStock: number;
+  currentStock: number;
+  unitPrice: number;
+  supplier: string;
+  status: string; // OK | LOW | CRITICAL
+}
+
+interface StockMovement {
+  id: string;
+  itemId: string;
+  type: string;
+  quantity: number;
+  reason: string;
+  createdAt: string;
+}
+
+const STATUS_COLOR: Record<string, { bg: string; color: string; label: string }> = {
+  OK:       { bg: '#e8f5e9', color: '#2e7d32', label: 'OK' },
+  LOW:      { bg: '#fff3e0', color: '#e65100', label: 'BAJO' },
+  CRITICAL: { bg: '#ffebee', color: '#b71c1c', label: 'CRÍTICO' },
+};
+
+export default function StockPage() {
+  const [tab, setTab] = useState<'all' | 'alerts'>('all');
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Add item form
+  const [showForm, setShowForm] = useState(false);
+  const [formName, setFormName] = useState('');
+  const [formCategory, setFormCategory] = useState('');
+  const [formUnit, setFormUnit] = useState('');
+  const [formMinStock, setFormMinStock] = useState('');
+  const [formCurrentStock, setFormCurrentStock] = useState('');
+  const [formUnitPrice, setFormUnitPrice] = useState('');
+  const [formSupplier, setFormSupplier] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Movement modal
+  const [movItem, setMovItem] = useState<StockItem | null>(null);
+  const [movType, setMovType] = useState<'IN' | 'OUT'>('IN');
+  const [movQty, setMovQty] = useState('');
+  const [movReason, setMovReason] = useState('');
+  const [movSaving, setMovSaving] = useState(false);
+
+  // Movement history modal
+  const [histItem, setHistItem] = useState<StockItem | null>(null);
+  const [history, setHistory] = useState<StockMovement[]>([]);
+  const [histLoading, setHistLoading] = useState(false);
+
+  useEffect(() => { loadItems(); }, []);
+
+  async function loadItems() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/stock${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      setItems(await res.json());
+    } catch (e: any) {
+      setError(e.message ?? 'Error al cargar stock');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAddItem(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/stock`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: formName, category: formCategory, unit: formUnit,
+          minStock: Number(formMinStock), currentStock: Number(formCurrentStock),
+          unitPrice: Number(formUnitPrice), supplier: formSupplier,
+        }),
+      });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      setShowForm(false);
+      setFormName(''); setFormCategory(''); setFormUnit('');
+      setFormMinStock(''); setFormCurrentStock(''); setFormUnitPrice(''); setFormSupplier('');
+      await loadItems();
+    } catch (e: any) {
+      alert(e.message ?? 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleMovement(e: React.FormEvent) {
+    e.preventDefault();
+    if (!movItem) return;
+    setMovSaving(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/stock/${movItem.id}/movement`, {
+        method: 'POST',
+        body: JSON.stringify({ type: movType, quantity: Number(movQty), reason: movReason }),
+      });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      setMovItem(null);
+      setMovQty(''); setMovReason('');
+      await loadItems();
+    } catch (e: any) {
+      alert(e.message ?? 'Error al registrar movimiento');
+    } finally {
+      setMovSaving(false);
+    }
+  }
+
+  async function openHistory(item: StockItem) {
+    setHistItem(item);
+    setHistLoading(true);
+    setHistory([]);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/stock/${item.id}/movements`);
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      setHistory(await res.json());
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistLoading(false);
+    }
+  }
+
+  const displayed = tab === 'alerts'
+    ? items.filter(i => i.status !== 'OK')
+    : items.filter(i =>
+        !search || i.name.toLowerCase().includes(search.toLowerCase())
+          || i.category.toLowerCase().includes(search.toLowerCase())
+          || i.supplier.toLowerCase().includes(search.toLowerCase())
+      );
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', maxWidth: 1200, margin: '0 auto' }}>
+      <h2 style={{ color: '#1976d2', marginBottom: 4 }}>Gestión de Stock</h2>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {(['all', 'alerts'] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            padding: '6px 18px', borderRadius: 4, border: 'none', cursor: 'pointer',
+            background: tab === t ? '#1976d2' : '#e0e0e0',
+            color: tab === t ? '#fff' : '#333', fontWeight: tab === t ? 700 : 400,
+          }}>
+            {t === 'all' ? 'Todo el stock' : '⚠️ Alertas'}
+          </button>
+        ))}
+        <button onClick={() => setShowForm(true)} style={{
+          marginLeft: 'auto', padding: '6px 18px', background: '#388e3c',
+          color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600,
+        }}>
+          + Nuevo producto
+        </button>
+      </div>
+
+      {/* Search */}
+      {tab === 'all' && (
+        <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar por nombre, categoría, proveedor..."
+            style={{ flex: 1, padding: '7px 12px', borderRadius: 4, border: '1px solid #ccc', fontSize: 14 }}
+            onKeyDown={e => e.key === 'Enter' && loadItems()}
+          />
+          <button onClick={loadItems} style={{
+            padding: '7px 16px', background: '#1976d2', color: '#fff',
+            border: 'none', borderRadius: 4, cursor: 'pointer',
+          }}>Buscar</button>
+        </div>
+      )}
+
+      {error && <p style={{ color: '#c62828', marginBottom: 8 }}>{error}</p>}
+      {loading && <p style={{ color: '#888' }}>Cargando...</p>}
+
+      {/* Table */}
+      {!loading && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: '#f5f5f5' }}>
+                {['Nombre', 'Categoría', 'Unidad', 'Stock actual', 'Stock mín.', 'Precio/u', 'Proveedor', 'Estado', 'Acciones'].map(h => (
+                  <th key={h} style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '2px solid #e0e0e0', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {displayed.length === 0 && (
+                <tr><td colSpan={9} style={{ padding: 16, textAlign: 'center', color: '#999' }}>Sin artículos</td></tr>
+              )}
+              {displayed.map(item => {
+                const sc = STATUS_COLOR[item.status] ?? STATUS_COLOR.OK;
+                const rowBg = item.status === 'CRITICAL' ? '#fff8f8' : item.status === 'LOW' ? '#fffde7' : '#fff';
+                return (
+                  <tr key={item.id} style={{ background: rowBg, borderBottom: '1px solid #eee',
+                    ...(tab === 'alerts' ? { border: '1px solid #ef9a9a' } : {}) }}>
+                    <td style={{ padding: '7px 10px', fontWeight: 500 }}>{item.name}</td>
+                    <td style={{ padding: '7px 10px', color: '#555' }}>{item.category}</td>
+                    <td style={{ padding: '7px 10px', color: '#555' }}>{item.unit}</td>
+                    <td style={{ padding: '7px 10px', fontWeight: 700,
+                      color: item.status === 'CRITICAL' ? '#b71c1c' : item.status === 'LOW' ? '#e65100' : '#2e7d32' }}>
+                      {item.currentStock}
+                    </td>
+                    <td style={{ padding: '7px 10px' }}>{item.minStock}</td>
+                    <td style={{ padding: '7px 10px' }}>{item.unitPrice.toFixed(2)} €</td>
+                    <td style={{ padding: '7px 10px', color: '#555' }}>{item.supplier}</td>
+                    <td style={{ padding: '7px 10px' }}>
+                      <span style={{
+                        background: sc.bg, color: sc.color,
+                        borderRadius: 12, padding: '2px 10px', fontSize: 12, fontWeight: 700,
+                      }}>{sc.label}</span>
+                    </td>
+                    <td style={{ padding: '7px 10px' }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button onClick={() => { setMovItem(item); setMovType('IN'); setMovQty(''); setMovReason(''); }}
+                          style={{ padding: '3px 10px', background: '#e8f5e9', color: '#2e7d32',
+                            border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                          Entrada
+                        </button>
+                        <button onClick={() => { setMovItem(item); setMovType('OUT'); setMovQty(''); setMovReason(''); }}
+                          style={{ padding: '3px 10px', background: '#fce4ec', color: '#c62828',
+                            border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                          Salida
+                        </button>
+                        <button onClick={() => openHistory(item)}
+                          style={{ padding: '3px 10px', background: '#e3f2fd', color: '#1565c0',
+                            border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                          Historial
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add item modal */}
+      {showForm && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <form onSubmit={handleAddItem} style={{
+            background: '#fff', borderRadius: 8, padding: 28,
+            minWidth: 400, maxWidth: 520, boxShadow: '0 4px 24px rgba(0,0,0,.2)',
+          }}>
+            <h3 style={{ marginTop: 0, color: '#1976d2' }}>Nuevo producto</h3>
+            {[
+              { label: 'Nombre', val: formName, set: setFormName, req: true },
+              { label: 'Categoría', val: formCategory, set: setFormCategory, req: true },
+              { label: 'Unidad', val: formUnit, set: setFormUnit, req: true },
+              { label: 'Stock mínimo', val: formMinStock, set: setFormMinStock, req: true, type: 'number' },
+              { label: 'Stock actual', val: formCurrentStock, set: setFormCurrentStock, req: true, type: 'number' },
+              { label: 'Precio/u (€)', val: formUnitPrice, set: setFormUnitPrice, req: true, type: 'number', step: '0.01' },
+              { label: 'Proveedor', val: formSupplier, set: setFormSupplier, req: false },
+            ].map(f => (
+              <div key={f.label} style={{ marginBottom: 10 }}>
+                <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 3 }}>{f.label}</label>
+                <input
+                  type={(f as any).type ?? 'text'} required={f.req}
+                  step={(f as any).step}
+                  value={f.val}
+                  onChange={e => f.set(e.target.value)}
+                  style={{ width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc', fontSize: 14, boxSizing: 'border-box' }}
+                />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button type="button" onClick={() => setShowForm(false)}
+                style={{ padding: '6px 18px', borderRadius: 4, border: '1px solid #ccc', background: '#f5f5f5', cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={saving}
+                style={{ padding: '6px 18px', borderRadius: 4, border: 'none',
+                  background: '#388e3c', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+                {saving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Movement modal */}
+      {movItem && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <form onSubmit={handleMovement} style={{
+            background: '#fff', borderRadius: 8, padding: 28,
+            minWidth: 340, boxShadow: '0 4px 24px rgba(0,0,0,.2)',
+          }}>
+            <h3 style={{ marginTop: 0, color: movType === 'IN' ? '#2e7d32' : '#c62828' }}>
+              {movType === 'IN' ? '➕ Entrada' : '➖ Salida'} — {movItem.name}
+            </h3>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: '#555' }}>
+              Stock actual: <strong>{movItem.currentStock}</strong> {movItem.unit}
+            </p>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 3 }}>Tipo</label>
+              <select value={movType} onChange={e => setMovType(e.target.value as 'IN' | 'OUT')}
+                style={{ width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc', fontSize: 14 }}>
+                <option value="IN">Entrada (IN)</option>
+                <option value="OUT">Salida (OUT)</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 3 }}>Cantidad</label>
+              <input type="number" min="1" required value={movQty} onChange={e => setMovQty(e.target.value)}
+                style={{ width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc', fontSize: 14, boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 3 }}>Motivo</label>
+              <input required value={movReason} onChange={e => setMovReason(e.target.value)}
+                placeholder="Ej: Pedido semanal, uso en tratamiento..."
+                style={{ width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc', fontSize: 14, boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setMovItem(null)}
+                style={{ padding: '6px 18px', borderRadius: 4, border: '1px solid #ccc', background: '#f5f5f5', cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={movSaving}
+                style={{ padding: '6px 18px', borderRadius: 4, border: 'none',
+                  background: movType === 'IN' ? '#388e3c' : '#c62828',
+                  color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+                {movSaving ? 'Registrando...' : 'Confirmar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* History modal */}
+      {histItem && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 8, padding: 28,
+            minWidth: 480, maxWidth: 600, maxHeight: '80vh', overflowY: 'auto',
+            boxShadow: '0 4px 24px rgba(0,0,0,.2)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, color: '#1976d2' }}>Historial — {histItem.name}</h3>
+              <button onClick={() => { setHistItem(null); setHistory([]); }}
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>✕</button>
+            </div>
+            {histLoading && <p style={{ color: '#888' }}>Cargando...</p>}
+            {!histLoading && history.length === 0 && (
+              <p style={{ color: '#999', textAlign: 'center' }}>Sin movimientos registrados</p>
+            )}
+            {!histLoading && history.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f5f5f5' }}>
+                    {['Tipo', 'Cantidad', 'Motivo', 'Fecha'].map(h => (
+                      <th key={h} style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map(m => (
+                    <tr key={m.id} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '6px 10px' }}>
+                        <span style={{
+                          background: m.type === 'IN' ? '#e8f5e9' : '#fce4ec',
+                          color: m.type === 'IN' ? '#2e7d32' : '#c62828',
+                          borderRadius: 12, padding: '1px 8px', fontSize: 12, fontWeight: 700,
+                        }}>{m.type}</span>
+                      </td>
+                      <td style={{ padding: '6px 10px', fontWeight: 600 }}>{m.quantity}</td>
+                      <td style={{ padding: '6px 10px', color: '#555' }}>{m.reason}</td>
+                      <td style={{ padding: '6px 10px', color: '#888', fontSize: 12 }}>
+                        {new Date(m.createdAt).toLocaleString('es-ES')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+
+    def generate_payment_page_tsx(self) -> str:
+        """
+        Generates PaymentPage.tsx — TPV (Cobrar) + Historial tabs.
+        Round 29: Historial de Pagos y TPV.
+        """
+        return """import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface PaymentRequest {
+  patientId: string;
+  invoiceId: string;
+  amount: number;
+  method: string;
+  reference: string;
+  notes: string;
+}
+
+interface PaymentResponse {
+  id: string;
+  patientId: string;
+  patientName: string;
+  invoiceId: string;
+  amount: number;
+  method: string;
+  reference: string;
+  status: string;
+  createdAt: string;
+  notes: string;
+}
+
+interface DailySummary {
+  date: string;
+  total: number;
+  cash: number;
+  card: number;
+  transfer: number;
+  insurance: number;
+  count: number;
+}
+
+const METHOD_LABEL: Record<string, string> = {
+  CASH: 'Efectivo',
+  CARD: 'Tarjeta',
+  TRANSFER: 'Transferencia',
+  INSURANCE: 'Seguro',
+};
+
+const METHOD_COLOR: Record<string, string> = {
+  CASH: '#2e7d32',
+  CARD: '#1565c0',
+  TRANSFER: '#6a1b9a',
+  INSURANCE: '#e65100',
+};
+
+export default function PaymentPage() {
+  const [tab, setTab] = useState<'cobrar' | 'historial'>('cobrar');
+
+  const [form, setForm] = useState<PaymentRequest>({
+    patientId: '', invoiceId: '', amount: 0, method: 'CASH', reference: '', notes: '',
+  });
+  const [posting, setPosting] = useState(false);
+  const [postMsg, setPostMsg] = useState('');
+  const [summary, setSummary] = useState<DailySummary | null>(null);
+  const [summaryError, setSummaryError] = useState('');
+
+  const [searchId, setSearchId] = useState('');
+  const [payments, setPayments] = useState<PaymentResponse[]>([]);
+  const [histError, setHistError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const loadSummary = () => {
+    apiFetch(`${API_BASE}/api/payments/summary/today`)
+      .then((r: any) => r.json())
+      .then((d: DailySummary) => setSummary(d))
+      .catch(() => setSummaryError('No se pudo cargar el resumen'));
+  };
+
+  useEffect(() => { loadSummary(); }, []);
+
+  const handleCobrar = async () => {
+    if (!form.patientId || !form.invoiceId || form.amount <= 0) {
+      setPostMsg('Rellena todos los campos obligatorios.');
+      return;
+    }
+    setPosting(true);
+    setPostMsg('');
+    try {
+      const res = await apiFetch(`${API_BASE}/api/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error('Error al registrar el pago');
+      setPostMsg('Pago registrado correctamente.');
+      setForm({ patientId: '', invoiceId: '', amount: 0, method: 'CASH', reference: '', notes: '' });
+      loadSummary();
+    } catch (e: any) {
+      setPostMsg(e.message ?? 'Error desconocido');
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchId.trim()) return;
+    setLoading(true);
+    setHistError('');
+    try {
+      const res = await apiFetch(`${API_BASE}/api/payments/patient/${searchId.trim()}`);
+      if (!res.ok) throw new Error('No se encontraron pagos');
+      const data: PaymentResponse[] = await res.json();
+      setPayments(data);
+    } catch (e: any) {
+      setHistError(e.message ?? 'Error al buscar');
+      setPayments([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fmt = (n: number) => n?.toFixed(2) ?? '0.00';
+
+  return (
+    <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+      <h2 style={{ marginBottom: 16 }}>TPV / Historial de Pagos</h2>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '2px solid #e0e0e0' }}>
+        {(['cobrar', 'historial'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              padding: '10px 28px', border: 'none',
+              background: tab === t ? '#1976d2' : 'transparent',
+              color: tab === t ? '#fff' : '#555',
+              fontWeight: tab === t ? 700 : 400,
+              fontSize: 15, cursor: 'pointer', borderRadius: '4px 4px 0 0',
+            }}
+          >
+            {t === 'cobrar' ? 'Cobrar' : 'Historial'}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'cobrar' && (
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 340px', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 1px 4px rgba(0,0,0,.12)' }}>
+            <h3 style={{ marginTop: 0 }}>Nuevo cobro</h3>
+            {(['patientId', 'invoiceId'] as const).map(field => (
+              <label key={field} style={{ display: 'block', marginBottom: 12 }}>
+                <span style={{ fontSize: 13, color: '#555' }}>{field === 'patientId' ? 'ID Paciente *' : 'ID Factura *'}</span>
+                <input
+                  value={form[field]}
+                  onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+                  placeholder={`UUID del ${field === 'patientId' ? 'paciente' : 'factura'}`}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box' }}
+                />
+              </label>
+            ))}
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <span style={{ fontSize: 13, color: '#555' }}>Importe (€) *</span>
+              <input
+                type="number" min={0} step={0.01} value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box' }}
+              />
+            </label>
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <span style={{ fontSize: 13, color: '#555' }}>Método de pago</span>
+              <select
+                value={form.method}
+                onChange={e => setForm(f => ({ ...f, method: e.target.value }))}
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box' }}
+              >
+                <option value="CASH">Efectivo</option>
+                <option value="CARD">Tarjeta</option>
+                <option value="TRANSFER">Transferencia</option>
+                <option value="INSURANCE">Seguro</option>
+              </select>
+            </label>
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <span style={{ fontSize: 13, color: '#555' }}>Referencia</span>
+              <input
+                value={form.reference}
+                onChange={e => setForm(f => ({ ...f, reference: e.target.value }))}
+                placeholder="Nº operación, nº cheque, etc."
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box' }}
+              />
+            </label>
+            <label style={{ display: 'block', marginBottom: 20 }}>
+              <span style={{ fontSize: 13, color: '#555' }}>Notas</span>
+              <textarea
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                rows={2}
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box', resize: 'vertical' }}
+              />
+            </label>
+            <button
+              onClick={handleCobrar}
+              disabled={posting}
+              style={{
+                width: '100%', padding: '14px 0', fontSize: 17, fontWeight: 700,
+                background: posting ? '#90caf9' : '#1976d2', color: '#fff',
+                border: 'none', borderRadius: 6, cursor: posting ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {posting ? 'Procesando...' : 'Cobrar'}
+            </button>
+            {postMsg && (
+              <p style={{ marginTop: 10, color: postMsg.includes('correctamente') ? '#2e7d32' : '#c62828', fontWeight: 600 }}>
+                {postMsg}
+              </p>
+            )}
+          </div>
+
+          <div style={{ flex: '1 1 260px', background: '#e3f2fd', borderRadius: 8, padding: 24, boxShadow: '0 1px 4px rgba(0,0,0,.10)', alignSelf: 'flex-start' }}>
+            <h3 style={{ marginTop: 0 }}>Caja de hoy</h3>
+            {summaryError && <p style={{ color: '#c62828' }}>{summaryError}</p>}
+            {summary && (
+              <>
+                <div style={{ fontSize: 32, fontWeight: 800, color: '#1565c0', marginBottom: 8 }}>
+                  {fmt(summary.total)} \u20ac
+                </div>
+                <div style={{ fontSize: 13, color: '#555', marginBottom: 16 }}>
+                  {summary.count} transacci\u00f3n(es)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    { label: 'Efectivo', value: summary.cash, key: 'CASH' },
+                    { label: 'Tarjeta', value: summary.card, key: 'CARD' },
+                    { label: 'Transferencia', value: summary.transfer, key: 'TRANSFER' },
+                    { label: 'Seguro', value: summary.insurance, key: 'INSURANCE' },
+                  ].map(item => (
+                    <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{
+                        fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                        background: METHOD_COLOR[item.key] + '22', color: METHOD_COLOR[item.key],
+                      }}>
+                        {item.label}
+                      </span>
+                      <span style={{ fontWeight: 600, color: '#333' }}>{fmt(item.value)} \u20ac</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {!summary && !summaryError && <p style={{ color: '#888' }}>Cargando...</p>}
+          </div>
+        </div>
+      )}
+
+      {tab === 'historial' && (
+        <div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-end' }}>
+            <label style={{ flex: 1 }}>
+              <span style={{ fontSize: 13, color: '#555' }}>Buscar por ID de paciente</span>
+              <input
+                value={searchId}
+                onChange={e => setSearchId(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                placeholder="UUID del paciente"
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box' }}
+              />
+            </label>
+            <button
+              onClick={handleSearch}
+              disabled={loading}
+              style={{ padding: '10px 24px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, fontSize: 14, cursor: 'pointer', height: 38 }}
+            >
+              {loading ? '...' : 'Buscar'}
+            </button>
+          </div>
+          {histError && <p style={{ color: '#c62828' }}>{histError}</p>}
+          {payments.length > 0 ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead>
+                  <tr style={{ background: '#f5f5f5', borderBottom: '2px solid #e0e0e0' }}>
+                    {['Fecha', 'Paciente', 'Factura', 'Importe', 'M\u00e9todo', 'Referencia', 'Estado'].map(h => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#444' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((p, i) => (
+                    <tr key={p.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '10px 12px', color: '#555' }}>{p.createdAt?.substring(0, 16).replace('T', ' ')}</td>
+                      <td style={{ padding: '10px 12px' }}>{p.patientName}</td>
+                      <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 12, color: '#888' }}>{p.invoiceId?.substring(0, 8)}\u2026</td>
+                      <td style={{ padding: '10px 12px', fontWeight: 700 }}>{Number(p.amount).toFixed(2)} \u20ac</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span style={{
+                          padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 700,
+                          background: (METHOD_COLOR[p.method] ?? '#555') + '22',
+                          color: METHOD_COLOR[p.method] ?? '#555',
+                        }}>
+                          {METHOD_LABEL[p.method] ?? p.method}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#777' }}>{p.reference || '\u2014'}</td>
+                      <td style={{ padding: '10px 12px', color: p.status === 'PAID' ? '#2e7d32' : '#e65100', fontWeight: 600 }}>{p.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            !loading && !histError && (
+              <p style={{ color: '#888', textAlign: 'center', marginTop: 40 }}>
+                Introduce un ID de paciente para ver su historial de pagos.
+              </p>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    def generate_consent_page_tsx(self) -> str:
+        """
+        Generates ConsentPage.tsx — list, create, sign and print informed consent forms.
+        Round 27.
+        """
+        return """import { useState } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface ConsentResponse {
+  id: string;
+  patientId: string;
+  patientName: string;
+  dentistId: string;
+  dentistName: string;
+  procedure: string;
+  consentText: string;
+  date: string;
+  status: string;
+  signedAt: string | null;
+}
+
+const DEFAULT_CONSENT_TEXT =
+  `CONSENTIMIENTO INFORMADO PARA TRATAMIENTO DENTAL
+
+Yo, el/la abajo firmante, autorizo al profesional odontologo a realizar los procedimientos de implantologia, endodoncia, extracciones y demas tratamientos dentales que se consideren necesarios para el mantenimiento de mi salud bucodental, habiendo sido informado/a de los riesgos y beneficios asociados a dichos procedimientos.
+
+Declaro haber recibido explicacion sobre las alternativas de tratamiento disponibles, los posibles riesgos e inconvenientes, las consecuencias previsibles de su realizacion y las contraindicaciones. Me ha sido facilitada la oportunidad de formular preguntas sobre el procedimiento y estas han sido contestadas de forma satisfactoria.
+
+Entiendo que puedo revocar este consentimiento en cualquier momento antes del inicio del procedimiento, sin que ello afecte a la atencion medica que deba recibir posteriormente. Este documento se rige por la Ley 41/2002 de Autonomia del Paciente.`;
+
+const PROCEDURES = [
+  'Extraccion dental', 'Endodoncia', 'Implante dental', 'Ortodoncia',
+  'Limpieza dental', 'Blanqueamiento dental', 'Empaste / Obturacion',
+  'Cirugia periodontal', 'Corona dental', 'Protesis removible', 'Otros',
+];
+
+export default function ConsentPage() {
+  const [consents, setConsents] = useState<ConsentResponse[]>([]);
+  const [searchPatientId, setSearchPatientId] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [signConfirmId, setSignConfirmId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    patientId: '', dentistId: '', procedure: PROCEDURES[0],
+    consentText: DEFAULT_CONSENT_TEXT,
+    date: new Date().toISOString().substring(0, 10),
+  });
+
+  const loadConsents = async (patientId: string) => {
+    if (!patientId.trim()) return;
+    setLoading(true); setError(null);
+    try {
+      const data = await apiFetch(`${API_BASE}/api/consents/patient/${patientId.trim()}`);
+      setConsents(data);
+    } catch (e: any) { setError('Error al cargar consentimientos: ' + e.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleCreate = async () => {
+    setError(null);
+    try {
+      const created = await apiFetch(`${API_BASE}/api/consents`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
+      });
+      setConsents(prev => [created, ...prev]);
+      setShowForm(false);
+      setForm(f => ({ ...f, patientId: '', dentistId: '', procedure: PROCEDURES[0], consentText: DEFAULT_CONSENT_TEXT }));
+    } catch (e: any) { setError('Error al crear consentimiento: ' + e.message); }
+  };
+
+  const handleSign = async (id: string) => {
+    setError(null);
+    try {
+      const updated = await apiFetch(`${API_BASE}/api/consents/${id}/sign`, { method: 'POST' });
+      setConsents(prev => prev.map(c => c.id === id ? updated : c));
+    } catch (e: any) { setError('Error al firmar: ' + e.message); }
+    finally { setSignConfirmId(null); }
+  };
+
+  const handlePrint = (consent: ConsentResponse) => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(
+      '<html><head><title>Consentimiento Informado</title>' +
+      '<style>body{font-family:Arial,sans-serif;margin:40px;line-height:1.6}' +
+      'h2{color:#1976d2}pre{white-space:pre-wrap;font-family:inherit}' +
+      '.info{margin-bottom:16px}.label{font-weight:bold}' +
+      '.sig{margin-top:60px;border-top:1px solid #333;width:280px;padding-top:8px}' +
+      '</style></head><body><h2>Consentimiento Informado</h2>' +
+      '<div class="info"><span class="label">Paciente:</span> ' + consent.patientName + '</div>' +
+      '<div class="info"><span class="label">Dentista:</span> ' + consent.dentistName + '</div>' +
+      '<div class="info"><span class="label">Procedimiento:</span> ' + consent.procedure + '</div>' +
+      '<div class="info"><span class="label">Fecha:</span> ' + consent.date + '</div>' +
+      '<div class="info"><span class="label">Estado:</span> ' + consent.status + '</div>' +
+      (consent.signedAt ? '<div class="info"><span class="label">Firmado el:</span> ' + consent.signedAt + '</div>' : '') +
+      '<hr/><pre>' + consent.consentText + '</pre>' +
+      '<div class="sig">Firma del paciente</div></body></html>'
+    );
+    win.document.close(); win.print();
+  };
+
+  const statusBadge = (status: string) => (
+    <span style={{
+      padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 700,
+      background: status === 'FIRMADO' ? '#e8f5e9' : '#fff3e0',
+      color: status === 'FIRMADO' ? '#2e7d32' : '#e65100',
+      border: `1px solid ${status === 'FIRMADO' ? '#a5d6a7' : '#ffcc80'}`,
+    }}>{status}</span>
+  );
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <h2 style={{ color: '#1976d2' }}>Consentimientos Informados</h2>
+      {error && <div style={{ background: '#ffebee', color: '#c62828', padding: '8px 16px', borderRadius: 6, marginBottom: 16 }}>{error}</div>}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <input type="text" placeholder="UUID del paciente" value={searchPatientId}
+          onChange={e => setSearchPatientId(e.target.value)}
+          style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc', flex: 1, maxWidth: 340 }} />
+        <button onClick={() => loadConsents(searchPatientId)}
+          style={{ padding: '6px 16px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+          Buscar
+        </button>
+        <button onClick={() => setShowForm(v => !v)}
+          style={{ padding: '6px 16px', background: '#388e3c', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+          {showForm ? 'Cancelar' : '+ Nuevo consentimiento'}
+        </button>
+      </div>
+      {showForm && (
+        <div style={{ background: '#f5f5f5', padding: 20, borderRadius: 8, marginBottom: 24, border: '1px solid #ddd' }}>
+          <h3 style={{ marginTop: 0 }}>Nuevo Consentimiento</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <label>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>UUID Paciente *</span>
+              <input type="text" value={form.patientId}
+                onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))}
+                style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid #ccc', boxSizing: 'border-box' }} />
+            </label>
+            <label>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>UUID Dentista *</span>
+              <input type="text" value={form.dentistId}
+                onChange={e => setForm(f => ({ ...f, dentistId: e.target.value }))}
+                style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid #ccc', boxSizing: 'border-box' }} />
+            </label>
+            <label>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Procedimiento *</span>
+              <select value={form.procedure}
+                onChange={e => setForm(f => ({ ...f, procedure: e.target.value }))}
+                style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid #ccc', boxSizing: 'border-box' }}>
+                {PROCEDURES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </label>
+            <label>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Fecha</span>
+              <input type="date" value={form.date}
+                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid #ccc', boxSizing: 'border-box' }} />
+            </label>
+          </div>
+          <label>
+            <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Texto del consentimiento (editable)</span>
+            <textarea value={form.consentText} rows={8}
+              onChange={e => setForm(f => ({ ...f, consentText: e.target.value }))}
+              style={{ width: '100%', padding: '8px', borderRadius: 4, border: '1px solid #ccc', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+          </label>
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            <button onClick={handleCreate} disabled={!form.patientId || !form.dentistId}
+              style={{ padding: '8px 20px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+              Guardar
+            </button>
+            <button onClick={() => setShowForm(false)}
+              style={{ padding: '8px 20px', background: '#757575', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+      {signConfirmId && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div style={{ background: '#fff', borderRadius: 8, padding: 32, maxWidth: 400, textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,.3)' }}>
+            <h3 style={{ marginTop: 0 }}>Confirmar firma</h3>
+            <p>El paciente confirma haber leido y acepta el consentimiento informado?</p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button onClick={() => handleSign(signConfirmId)}
+                style={{ padding: '8px 20px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                Si, firmar
+              </button>
+              <button onClick={() => setSignConfirmId(null)}
+                style={{ padding: '8px 20px', background: '#757575', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {loading && <p>Cargando...</p>}
+      {!loading && consents.length === 0 && <p style={{ color: '#888' }}>Busca por UUID de paciente para ver sus consentimientos.</p>}
+      {consents.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <thead>
+            <tr style={{ background: '#1976d2', color: '#fff' }}>
+              {['Paciente', 'Procedimiento', 'Fecha', 'Estado', 'Acciones'].map(h => (
+                <th key={h} style={{ padding: '8px 12px', textAlign: 'left' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {consents.map((c, i) => (
+              <tr key={c.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9f9f9', borderBottom: '1px solid #eee' }}>
+                <td style={{ padding: '8px 12px' }}>{c.patientName}</td>
+                <td style={{ padding: '8px 12px' }}>{c.procedure}</td>
+                <td style={{ padding: '8px 12px' }}>{c.date}</td>
+                <td style={{ padding: '8px 12px' }}>{statusBadge(c.status)}</td>
+                <td style={{ padding: '8px 12px' }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {c.status === 'PENDIENTE' && (
+                      <button onClick={() => setSignConfirmId(c.id)}
+                        style={{ padding: '4px 10px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                        Firmar
+                      </button>
+                    )}
+                    <button onClick={() => handlePrint(c)}
+                      style={{ padding: '4px 10px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                      Imprimir
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+"""

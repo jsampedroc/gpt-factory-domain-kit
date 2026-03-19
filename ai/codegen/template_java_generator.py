@@ -2966,6 +2966,173 @@ public class {class_name} {{
 }}
 """
 
+    def generate_consent_controller(self, base_package: str) -> str:
+        """
+        Generates ConsentController.java — CRUD + sign endpoints for informed consent forms.
+        Uses in-memory ConcurrentHashMap storage (replace with JPA in production).
+        Round 27.
+        """
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * REST controller for managing informed consent forms (consentimientos informados).
+ * Round 27 — in-memory implementation. Wire with real repositories in production.
+ */
+@RestController
+@RequestMapping("/api/consents")
+@Tag(name = "Consents", description = "Gestion de consentimientos informados")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class ConsentController {{
+
+    private static final Map<UUID, ConsentRecord> STORE = new ConcurrentHashMap<>();
+
+    private static final String DEFAULT_CONSENT_TEXT =
+        "CONSENTIMIENTO INFORMADO PARA TRATAMIENTO DENTAL\\n\\n" +
+        "Yo, el/la abajo firmante, autorizo al profesional odontologo a realizar los procedimientos " +
+        "de implantologia, endodoncia, extracciones y demas tratamientos dentales que se consideren " +
+        "necesarios para el mantenimiento de mi salud bucodental, habiendo sido informado/a de los " +
+        "riesgos y beneficios asociados a dichos procedimientos.\\n\\n" +
+        "Declaro haber recibido explicacion sobre las alternativas de tratamiento disponibles, " +
+        "los posibles riesgos e inconvenientes, las consecuencias previsibles de su realizacion " +
+        "y las contraindicaciones. Me ha sido facilitada la oportunidad de formular preguntas " +
+        "sobre el procedimiento y estas han sido contestadas de forma satisfactoria.\\n\\n" +
+        "Entiendo que puedo revocar este consentimiento en cualquier momento antes del inicio " +
+        "del procedimiento, sin que ello afecte a la atencion medica que deba recibir posteriormente. " +
+        "Este documento se rige por la Ley 41/2002 de Autonomia del Paciente.";
+
+    // ---------------------------------------------------------------
+    // Endpoints
+    // ---------------------------------------------------------------
+
+    /** GET /api/consents/patient/{{patientId}} — list consents for a patient */
+    @GetMapping("/patient/{{patientId}}")
+    public ResponseEntity<List<ConsentResponse>> listByPatient(@PathVariable UUID patientId) {{
+        List<ConsentResponse> result = STORE.values().stream()
+                .filter(c -> c.patientId().equals(patientId))
+                .map(ConsentController::toResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }}
+
+    /** POST /api/consents — create a new consent record */
+    @PostMapping
+    public ResponseEntity<ConsentResponse> create(@RequestBody ConsentRequest req) {{
+        String text = (req.consentText() != null && !req.consentText().isBlank())
+                ? req.consentText()
+                : DEFAULT_CONSENT_TEXT;
+        ConsentRecord record = new ConsentRecord(
+                UUID.randomUUID(),
+                req.patientId(),
+                "Paciente " + req.patientId().toString().substring(0, 8),
+                req.dentistId(),
+                "Dr. " + req.dentistId().toString().substring(0, 8),
+                req.procedure(),
+                text,
+                req.date() != null ? req.date() : LocalDate.now(),
+                "PENDIENTE",
+                null
+        );
+        STORE.put(record.id(), record);
+        return ResponseEntity.ok(toResponse(record));
+    }}
+
+    /** GET /api/consents/{{id}} — get a single consent by id */
+    @GetMapping("/{{id}}")
+    public ResponseEntity<ConsentResponse> getById(@PathVariable UUID id) {{
+        ConsentRecord record = STORE.get(id);
+        if (record == null) {{
+            return ResponseEntity.notFound().build();
+        }}
+        return ResponseEntity.ok(toResponse(record));
+    }}
+
+    /** POST /api/consents/{{id}}/sign — patient signs the consent */
+    @PostMapping("/{{id}}/sign")
+    public ResponseEntity<ConsentResponse> sign(@PathVariable UUID id) {{
+        ConsentRecord existing = STORE.get(id);
+        if (existing == null) {{
+            return ResponseEntity.notFound().build();
+        }}
+        String signedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        ConsentRecord signed = new ConsentRecord(
+                existing.id(),
+                existing.patientId(),
+                existing.patientName(),
+                existing.dentistId(),
+                existing.dentistName(),
+                existing.procedure(),
+                existing.consentText(),
+                existing.date(),
+                "FIRMADO",
+                signedAt
+        );
+        STORE.put(id, signed);
+        return ResponseEntity.ok(toResponse(signed));
+    }}
+
+    // ---------------------------------------------------------------
+    // Inner record types
+    // ---------------------------------------------------------------
+
+    public record ConsentRequest(
+            UUID patientId,
+            UUID dentistId,
+            String procedure,
+            String consentText,
+            LocalDate date
+    ) {{}}
+
+    public record ConsentResponse(
+            UUID id,
+            UUID patientId,
+            String patientName,
+            UUID dentistId,
+            String dentistName,
+            String procedure,
+            String consentText,
+            LocalDate date,
+            String status,
+            String signedAt
+    ) {{}}
+
+    private record ConsentRecord(
+            UUID id,
+            UUID patientId,
+            String patientName,
+            UUID dentistId,
+            String dentistName,
+            String procedure,
+            String consentText,
+            LocalDate date,
+            String status,
+            String signedAt
+    ) {{}}
+
+    private static ConsentResponse toResponse(ConsentRecord r) {{
+        return new ConsentResponse(
+                r.id(), r.patientId(), r.patientName(),
+                r.dentistId(), r.dentistName(),
+                r.procedure(), r.consentText(),
+                r.date(), r.status(), r.signedAt()
+        );
+    }}
+}}
+"""
+
     def generate_patient_portal_controller(self, base_package: str) -> str:
         """
         Generates PatientPortalController — public REST endpoints for patient self-service.
@@ -3055,6 +3222,593 @@ public class PatientPortalController {{
             String date,
             String procedure,
             String notes
+    ) {{}}
+}}
+"""
+
+    def generate_stock_controller(self, base_package: str) -> str:
+        """
+        Generates StockController — inventory and supply management for clinic.
+        ADMIN only. In-memory ConcurrentHashMap with 15 pre-populated dental supplies.
+        Endpoints: list, add, update, movement (IN/OUT), low-stock alerts, movement history.
+        Round 28.
+        """
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * Clinic supply and inventory management.
+ * Pre-populated with 15 realistic dental supplies.
+ * In production, replace in-memory store with a JPA repository.
+ */
+@RestController
+@RequestMapping("/api/stock")
+@Tag(name = "Stock", description = "Clinic supply and inventory management")
+@PreAuthorize("hasAnyRole('ADMIN')")
+public class StockController {{
+
+    // ---------------------------------------------------------------
+    // In-memory store
+    // ---------------------------------------------------------------
+
+    private final ConcurrentHashMap<UUID, StockItem> store = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, List<StockMovement>> movements = new ConcurrentHashMap<>();
+
+    public StockController() {{
+        seed();
+    }}
+
+    private void seed() {{
+        addItem("Anestesia Articaína 4%",            "Anestésicos",              "cartucho",      20,  120, new BigDecimal("1.85"),   "DentalDep S.L.");
+        addItem("Guantes de nitrilo (S)",             "EPIs",                     "caja 100u",      5,   22, new BigDecimal("7.50"),   "Medistock S.A.");
+        addItem("Guantes de nitrilo (M)",             "EPIs",                     "caja 100u",      5,   18, new BigDecimal("7.50"),   "Medistock S.A.");
+        addItem("Guantes de nitrilo (L)",             "EPIs",                     "caja 100u",      5,    4, new BigDecimal("7.50"),   "Medistock S.A.");
+        addItem("Mascarillas FFP2",                   "EPIs",                     "caja 20u",      10,   35, new BigDecimal("12.00"),  "Medistock S.A.");
+        addItem("Gasas estériles",                    "Material quirúrgico",      "paquete 100u",   8,   50, new BigDecimal("4.20"),   "SurgePro");
+        addItem("Implante Nobel Biocare Ø3.5",        "Implantes",                "unidad",         5,   12, new BigDecimal("185.00"), "Nobel Biocare");
+        addItem("Composite Filtek Z350",              "Resinas",                  "jeringa 4g",     6,   20, new BigDecimal("28.50"),  "3M ESPE");
+        addItem("Cemento ionómero de vidrio",         "Cementos",                 "polvo 25g",      4,   10, new BigDecimal("34.00"),  "GC Europe");
+        addItem("Fresas de diamante redondas",        "Instrumental rotatorio",   "caja 10u",       3,    8, new BigDecimal("19.90"),  "Komet Dental");
+        addItem("Papel de articular 200µm",           "Diagnóstico",              "caja 144 tiras", 2,    6, new BigDecimal("5.80"),   "Bausch");
+        addItem("Hilo de retracción #2",              "Prótesis",                 "carrete",        3,    5, new BigDecimal("11.40"),  "Ultrapak");
+        addItem("Ácido grabador 37%",                 "Adhesivos",                "jeringa 3ml",    5,   14, new BigDecimal("6.20"),   "Ivoclar");
+        addItem("Adhesivo Optibond FL",               "Adhesivos",                "kit",            3,    0, new BigDecimal("62.00"),  "Kerr Dental");
+        addItem("Sutura reabsorbible 3/0",            "Material quirúrgico",      "caja 12u",       4,    9, new BigDecimal("22.50"),  "Ethicon");
+    }}
+
+    private void addItem(String name, String category, String unit,
+                         int minStock, int currentStock, BigDecimal unitPrice, String supplier) {{
+        UUID id = UUID.randomUUID();
+        String status = computeStatus(currentStock, minStock);
+        store.put(id, new StockItem(id, name, category, unit, minStock, currentStock, unitPrice, supplier, status));
+        movements.put(id, new ArrayList<>());
+    }}
+
+    private String computeStatus(int current, int min) {{
+        if (current == 0)     return "CRITICAL";
+        if (current <= min)   return "LOW";
+        return "OK";
+    }}
+
+    // ---------------------------------------------------------------
+    // Endpoints
+    // ---------------------------------------------------------------
+
+    @GetMapping
+    @Operation(summary = "Listar todos los artículos (con filtro opcional ?search=)")
+    public ResponseEntity<List<StockItem>> list(@RequestParam(required = false) String search) {{
+        List<StockItem> items = new ArrayList<>(store.values());
+        if (search != null && !search.isBlank()) {{
+            String q = search.toLowerCase();
+            items = items.stream()
+                    .filter(i -> i.name().toLowerCase().contains(q)
+                              || i.category().toLowerCase().contains(q)
+                              || i.supplier().toLowerCase().contains(q))
+                    .collect(Collectors.toList());
+        }}
+        items.sort(Comparator.comparing(StockItem::name));
+        return ResponseEntity.ok(items);
+    }}
+
+    @PostMapping
+    @Operation(summary = "Añadir nuevo artículo al stock")
+    public ResponseEntity<StockItem> create(@RequestBody StockItemRequest req) {{
+        UUID id = UUID.randomUUID();
+        String status = computeStatus(req.currentStock(), req.minStock());
+        StockItem item = new StockItem(id, req.name(), req.category(), req.unit(),
+                req.minStock(), req.currentStock(), req.unitPrice(), req.supplier(), status);
+        store.put(id, item);
+        movements.put(id, new ArrayList<>());
+        return ResponseEntity.ok(item);
+    }}
+
+    @PutMapping("/{{id}}")
+    @Operation(summary = "Actualizar datos de un artículo")
+    public ResponseEntity<StockItem> update(@PathVariable UUID id,
+                                            @RequestBody StockItemRequest req) {{
+        StockItem existing = store.get(id);
+        if (existing == null) return ResponseEntity.notFound().build();
+        String status = computeStatus(req.currentStock(), req.minStock());
+        StockItem updated = new StockItem(id, req.name(), req.category(), req.unit(),
+                req.minStock(), req.currentStock(), req.unitPrice(), req.supplier(), status);
+        store.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @PostMapping("/{{id}}/movement")
+    @Operation(summary = "Registrar movimiento de stock (ENTRADA / SALIDA)")
+    public ResponseEntity<StockItem> recordMovement(@PathVariable UUID id,
+                                                    @RequestBody MovementRequest req) {{
+        StockItem item = store.get(id);
+        if (item == null) return ResponseEntity.notFound().build();
+
+        int newStock = "IN".equalsIgnoreCase(req.type())
+                ? item.currentStock() + req.quantity()
+                : Math.max(0, item.currentStock() - req.quantity());
+
+        StockMovement mov = new StockMovement(
+                UUID.randomUUID(), id, req.type().toUpperCase(), req.quantity(), req.reason(),
+                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        movements.computeIfAbsent(id, k -> new ArrayList<>()).add(mov);
+
+        String status = computeStatus(newStock, item.minStock());
+        StockItem updated = new StockItem(id, item.name(), item.category(), item.unit(),
+                item.minStock(), newStock, item.unitPrice(), item.supplier(), status);
+        store.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @GetMapping("/low")
+    @Operation(summary = "Artículos con stock bajo o crítico (alertas)")
+    public ResponseEntity<List<StockItem>> lowStock() {{
+        List<StockItem> alerts = store.values().stream()
+                .filter(i -> !"OK".equals(i.status()))
+                .sorted(Comparator.comparing(StockItem::name))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(alerts);
+    }}
+
+    @GetMapping("/{{id}}/movements")
+    @Operation(summary = "Historial de movimientos de un artículo")
+    public ResponseEntity<List<StockMovement>> getMovements(@PathVariable UUID id) {{
+        List<StockMovement> list = movements.getOrDefault(id, Collections.emptyList());
+        List<StockMovement> sorted = new ArrayList<>(list);
+        sorted.sort(Comparator.comparing(StockMovement::createdAt).reversed());
+        return ResponseEntity.ok(sorted);
+    }}
+
+    // ---------------------------------------------------------------
+    // Inner record types
+    // ---------------------------------------------------------------
+
+    public record StockItem(
+            UUID id,
+            String name,
+            String category,
+            String unit,
+            int minStock,
+            int currentStock,
+            BigDecimal unitPrice,
+            String supplier,
+            String status          // OK | LOW | CRITICAL
+    ) {{}}
+
+    public record StockItemRequest(
+            String name,
+            String category,
+            String unit,
+            int minStock,
+            int currentStock,
+            BigDecimal unitPrice,
+            String supplier
+    ) {{}}
+
+    public record StockMovement(
+            UUID id,
+            UUID itemId,
+            String type,           // IN | OUT
+            int quantity,
+            String reason,
+            String createdAt
+    ) {{}}
+
+    public record MovementRequest(
+            String type,           // IN | OUT
+            int quantity,
+            String reason
+    ) {{}}
+}}
+"""
+
+    def generate_prescription_controller(self, base_package: str) -> str:
+        """
+        Generates PrescriptionController — REST endpoints for electronic prescriptions.
+        Requires ADMIN or DENTIST role. Uses in-memory ConcurrentHashMap stub storage.
+        """
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * Electronic prescriptions management.
+ * Requires ADMIN or DENTIST role.
+ * Uses in-memory stub storage — wire real repositories in production.
+ */
+@RestController
+@RequestMapping("/api/prescriptions")
+@Tag(name = "Prescriptions", description = "Electronic prescriptions management")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class PrescriptionController {{
+
+    private final Map<UUID, PrescriptionResponse> store = new ConcurrentHashMap<>();
+
+    // ---------------------------------------------------------------
+    // GET /api/prescriptions/patient/{{patientId}}
+    // ---------------------------------------------------------------
+
+    @GetMapping("/patient/{{patientId}}")
+    @Operation(summary = "Listar recetas de un paciente")
+    public ResponseEntity<List<PrescriptionResponse>> getByPatient(
+            @PathVariable UUID patientId) {{
+
+        List<PrescriptionResponse> result = store.values().stream()
+                .filter(p -> patientId.equals(p.patientId()))
+                .collect(Collectors.toList());
+
+        // Seed stub data when store is empty for demo purposes
+        if (result.isEmpty()) {{
+            PrescriptionResponse stub = new PrescriptionResponse(
+                    UUID.randomUUID(),
+                    patientId,
+                    "Paciente Demo",
+                    UUID.randomUUID(),
+                    "Dr. García",
+                    LocalDate.now().minusDays(3),
+                    "Infección periodontal leve",
+                    List.of(
+                            new PrescriptionLine(
+                                    "Amoxicilina 500mg",
+                                    "500mg",
+                                    "Cada 8 horas",
+                                    7,
+                                    "Tomar con alimentos"
+                            ),
+                            new PrescriptionLine(
+                                    "Ibuprofeno 400mg",
+                                    "400mg",
+                                    "Cada 6 horas si hay dolor",
+                                    5,
+                                    "No superar 1200mg/día"
+                            )
+                    ),
+                    "Revisión en 7 días",
+                    "ACTIVA",
+                    LocalDateTime.now().minusDays(3).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            );
+            store.put(stub.id(), stub);
+            result = List.of(stub);
+        }}
+
+        return ResponseEntity.ok(result);
+    }}
+
+    // ---------------------------------------------------------------
+    // POST /api/prescriptions
+    // ---------------------------------------------------------------
+
+    @PostMapping
+    @Operation(summary = "Crear nueva receta electrónica")
+    public ResponseEntity<PrescriptionResponse> create(
+            @Valid @RequestBody PrescriptionRequest request) {{
+
+        UUID id = UUID.randomUUID();
+        PrescriptionResponse response = new PrescriptionResponse(
+                id,
+                request.patientId(),
+                "Paciente " + request.patientId().toString().substring(0, 8),
+                request.dentistId(),
+                "Dr. Usuario",
+                request.date() != null ? request.date() : LocalDate.now(),
+                request.diagnosis(),
+                request.lines() != null ? request.lines() : List.of(),
+                request.notes(),
+                "ACTIVA",
+                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        );
+        store.put(id, response);
+        return ResponseEntity.ok(response);
+    }}
+
+    // ---------------------------------------------------------------
+    // GET /api/prescriptions/{{id}}
+    // ---------------------------------------------------------------
+
+    @GetMapping("/{{id}}")
+    @Operation(summary = "Obtener receta por ID")
+    public ResponseEntity<PrescriptionResponse> getById(@PathVariable UUID id) {{
+        PrescriptionResponse p = store.get(id);
+        if (p == null) {{
+            return ResponseEntity.notFound().build();
+        }}
+        return ResponseEntity.ok(p);
+    }}
+
+    // ---------------------------------------------------------------
+    // DELETE /api/prescriptions/{{id}}  — void / cancel
+    // ---------------------------------------------------------------
+
+    @DeleteMapping("/{{id}}")
+    @Operation(summary = "Anular receta electrónica")
+    public ResponseEntity<PrescriptionResponse> voidPrescription(@PathVariable UUID id) {{
+        PrescriptionResponse existing = store.get(id);
+        if (existing == null) {{
+            return ResponseEntity.notFound().build();
+        }}
+        PrescriptionResponse voided = new PrescriptionResponse(
+                existing.id(),
+                existing.patientId(),
+                existing.patientName(),
+                existing.dentistId(),
+                existing.dentistName(),
+                existing.date(),
+                existing.diagnosis(),
+                existing.lines(),
+                existing.notes(),
+                "ANULADA",
+                existing.createdAt()
+        );
+        store.put(id, voided);
+        return ResponseEntity.ok(voided);
+    }}
+
+    // ---------------------------------------------------------------
+    // Inner record types
+    // ---------------------------------------------------------------
+
+    public record PrescriptionRequest(
+            UUID patientId,
+            UUID dentistId,
+            LocalDate date,
+            String diagnosis,
+            List<PrescriptionLine> lines,
+            String notes
+    ) {{}}
+
+    public record PrescriptionLine(
+            String medication,
+            String dosage,
+            String frequency,
+            int durationDays,
+            String instructions
+    ) {{}}
+
+    public record PrescriptionResponse(
+            UUID id,
+            UUID patientId,
+            String patientName,
+            UUID dentistId,
+            String dentistName,
+            LocalDate date,
+            String diagnosis,
+            List<PrescriptionLine> lines,
+            String notes,
+            String status,
+            String createdAt
+    ) {{}}
+}}
+"""
+
+    def generate_payment_controller(self, base_package: str) -> str:
+        """
+        Generates PaymentController — payment history and TPV endpoints.
+        Round 29: Historial de Pagos y TPV.
+        """
+        return f"""package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * Payment history and point-of-sale (TPV) controller.
+ * Round 29 — in-memory stub; wire with real persistence in production.
+ */
+@RestController
+@RequestMapping("/api/payments")
+@Tag(name = "Payments", description = "Payment history and point of sale")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class PaymentController {{
+
+    private static final Map<UUID, PaymentResponse> STORE = new ConcurrentHashMap<>();
+
+    static {{
+        String[][] demo = {{
+            {{"a1b2c3d4-0001-0001-0001-000000000001","Ana López","f1000001-0000-0000-0000-000000000001","120.00","CASH","","PAID","2026-03-01T09:15:00","Limpieza dental"}},
+            {{"a1b2c3d4-0002-0002-0002-000000000002","Carlos Ruiz","f1000002-0000-0000-0000-000000000002","350.00","CARD","TXN-4821","PAID","2026-03-03T10:30:00","Empaste molar"}},
+            {{"a1b2c3d4-0003-0003-0003-000000000003","María García","f1000003-0000-0000-0000-000000000003","80.00","INSURANCE","SEG-001","PAID","2026-03-05T11:00:00","Revisión periódica"}},
+            {{"a1b2c3d4-0004-0004-0004-000000000004","Pedro Sánchez","f1000004-0000-0000-0000-000000000004","900.00","TRANSFER","TRAN-9910","PAID","2026-03-07T12:45:00","Corona porcelana"}},
+            {{"a1b2c3d4-0005-0005-0005-000000000005","Laura Martínez","f1000005-0000-0000-0000-000000000005","200.00","CARD","TXN-5533","PAID","2026-03-10T09:00:00","Blanqueamiento"}},
+            {{"a1b2c3d4-0006-0006-0006-000000000006","Javier Torres","f1000006-0000-0000-0000-000000000006","45.00","CASH","","PAID","2026-03-12T14:20:00","Urgencia dolor"}},
+            {{"a1b2c3d4-0007-0007-0007-000000000007","Sofía Díaz","f1000007-0000-0000-0000-000000000007","1200.00","INSURANCE","SEG-082","PAID","2026-03-14T16:00:00","Ortodoncia mensualidad"}},
+            {{"a1b2c3d4-0008-0008-0008-000000000008","Miguel Fernández","f1000008-0000-0000-0000-000000000008","75.00","CASH","","PAID","2026-03-17T08:30:00","Radiografía panorámica"}},
+            {{"a1b2c3d4-0009-0009-0009-000000000009","Elena Romero","f1000009-0000-0000-0000-000000000009","500.00","CARD","TXN-7741","PAID","2026-03-19T10:10:00","Implante fase 1"}},
+            {{"a1b2c3d4-0010-0010-0010-000000000010","Roberto Jiménez","f1000010-0000-0000-0000-000000000010","160.00","TRANSFER","TRAN-3301","PAID","2026-03-19T11:45:00","Endodoncia"}}
+        }};
+        for (String[] d : demo) {{
+            UUID id = UUID.randomUUID();
+            STORE.put(id, new PaymentResponse(
+                id,
+                UUID.fromString(d[0]), d[1],
+                UUID.fromString(d[2]),
+                new BigDecimal(d[3]), d[4], d[5], d[6], d[7], d[8]
+            ));
+        }}
+    }}
+
+    /** GET /api/payments/patient/{{patientId}} */
+    @GetMapping("/patient/{{patientId}}")
+    @Operation(summary = "Historial de pagos de un paciente")
+    public ResponseEntity<List<PaymentResponse>> getByPatient(@PathVariable UUID patientId) {{
+        List<PaymentResponse> result = STORE.values().stream()
+                .filter(p -> p.patientId().equals(patientId))
+                .sorted(Comparator.comparing(PaymentResponse::createdAt).reversed())
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }}
+
+    /** POST /api/payments */
+    @PostMapping
+    @Operation(summary = "Registrar un pago")
+    public ResponseEntity<PaymentResponse> createPayment(@RequestBody PaymentRequest req) {{
+        UUID id = UUID.randomUUID();
+        String now = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        PaymentResponse saved = new PaymentResponse(
+                id, req.patientId(), "Paciente", req.invoiceId(),
+                req.amount(), req.method(),
+                req.reference() != null ? req.reference() : "",
+                "PAID", now,
+                req.notes() != null ? req.notes() : ""
+        );
+        STORE.put(id, saved);
+        return ResponseEntity.ok(saved);
+    }}
+
+    /** GET /api/payments/summary/today */
+    @GetMapping("/summary/today")
+    @Operation(summary = "Resumen de caja del día")
+    public ResponseEntity<DailySummary> getTodaySummary() {{
+        LocalDate today = LocalDate.now();
+        DateTimeFormatter fmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+        List<PaymentResponse> todayPayments = STORE.values().stream()
+                .filter(p -> {{
+                    try {{ return LocalDateTime.parse(p.createdAt(), fmt).toLocalDate().equals(today); }}
+                    catch (Exception e) {{ return false; }}
+                }})
+                .collect(Collectors.toList());
+        BigDecimal total = BigDecimal.ZERO, cash = BigDecimal.ZERO,
+                   card  = BigDecimal.ZERO, transfer = BigDecimal.ZERO, insurance = BigDecimal.ZERO;
+        for (PaymentResponse p : todayPayments) {{
+            total = total.add(p.amount());
+            switch (p.method()) {{
+                case "CASH"     -> cash     = cash.add(p.amount());
+                case "CARD"     -> card     = card.add(p.amount());
+                case "TRANSFER" -> transfer = transfer.add(p.amount());
+                case "INSURANCE"-> insurance= insurance.add(p.amount());
+            }}
+        }}
+        return ResponseEntity.ok(new DailySummary(today, total, cash, card, transfer, insurance, todayPayments.size()));
+    }}
+
+    /** GET /api/payments/summary/monthly?months=6 */
+    @GetMapping("/summary/monthly")
+    @Operation(summary = "Ingresos mensuales por método de pago")
+    public ResponseEntity<List<MonthlyPaymentSummary>> getMonthlySummary(
+            @RequestParam(defaultValue = "6") int months) {{
+        DateTimeFormatter fmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+        DateTimeFormatter monthFmt = DateTimeFormatter.ofPattern("yyyy-MM");
+        LocalDate cutoff = LocalDate.now().minusMonths(months - 1L).withDayOfMonth(1);
+        Map<String, MonthlyPaymentSummary> grouped = new LinkedHashMap<>();
+        STORE.values().stream()
+                .filter(p -> {{
+                    try {{ return !LocalDateTime.parse(p.createdAt(), fmt).toLocalDate().isBefore(cutoff); }}
+                    catch (Exception e) {{ return false; }}
+                }})
+                .forEach(p -> {{
+                    String month;
+                    try {{ month = LocalDateTime.parse(p.createdAt(), fmt).format(monthFmt); }}
+                    catch (Exception e) {{ month = "unknown"; }}
+                    grouped.compute(month, (k, ex) -> {{
+                        if (ex == null) ex = new MonthlyPaymentSummary(k, BigDecimal.ZERO, BigDecimal.ZERO,
+                                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                        return new MonthlyPaymentSummary(k,
+                            ex.total().add(p.amount()),
+                            ex.cash().add("CASH".equals(p.method())      ? p.amount() : BigDecimal.ZERO),
+                            ex.card().add("CARD".equals(p.method())      ? p.amount() : BigDecimal.ZERO),
+                            ex.transfer().add("TRANSFER".equals(p.method())  ? p.amount() : BigDecimal.ZERO),
+                            ex.insurance().add("INSURANCE".equals(p.method()) ? p.amount() : BigDecimal.ZERO));
+                    }});
+                }});
+        List<MonthlyPaymentSummary> result = new ArrayList<>(grouped.values());
+        result.sort(Comparator.comparing(MonthlyPaymentSummary::month));
+        return ResponseEntity.ok(result);
+    }}
+
+    public record PaymentRequest(
+            UUID patientId,
+            UUID invoiceId,
+            BigDecimal amount,
+            String method,
+            String reference,
+            String notes
+    ) {{}}
+
+    public record PaymentResponse(
+            UUID id,
+            UUID patientId,
+            String patientName,
+            UUID invoiceId,
+            BigDecimal amount,
+            String method,
+            String reference,
+            String status,
+            String createdAt,
+            String notes
+    ) {{}}
+
+    public record DailySummary(
+            LocalDate date,
+            BigDecimal total,
+            BigDecimal cash,
+            BigDecimal card,
+            BigDecimal transfer,
+            BigDecimal insurance,
+            int count
+    ) {{}}
+
+    public record MonthlyPaymentSummary(
+            String month,
+            BigDecimal total,
+            BigDecimal cash,
+            BigDecimal card,
+            BigDecimal transfer,
+            BigDecimal insurance
     ) {{}}
 }}
 """

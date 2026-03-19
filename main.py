@@ -1258,6 +1258,34 @@ public class SecurityConfig {{
         except Exception as e:
             f.log(f"⚠️ Patient Portal generation error: {e}")
 
+        # ---- Prescriptions (Round 26) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/PrescriptionController.java"] = \
+                tg.generate_prescription_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Prescription generation error: {e}")
+
+        # ---- Consents (Round 27) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/ConsentController.java"] = \
+                tg.generate_consent_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Consent generation error: {e}")
+
+        # ---- Stock Management (Round 28) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/StockController.java"] = \
+                tg.generate_stock_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Stock generation error: {e}")
+
+        # ---- Payments / TPV (Round 29) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/PaymentController.java"] = \
+                tg.generate_payment_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Payment generation error: {e}")
+
         # ---- Integration tests (Testcontainers) ----
         if dashboard_modules:
             try:
@@ -1392,6 +1420,14 @@ public class SecurityConfig {{
             "frontend/src/pages/ReportsPage.tsx": gen.generate_reports_page_tsx(),
             # Round 24: Patient Portal
             "frontend/src/pages/PatientPortalPage.tsx": gen.generate_patient_portal_tsx(),
+            # Round 26: Prescriptions
+            "frontend/src/pages/PrescriptionPage.tsx": gen.generate_prescription_page_tsx(),
+            # Round 28: Stock
+            "frontend/src/pages/StockPage.tsx": gen.generate_stock_page_tsx(),
+            # Round 29: Payments / TPV
+            "frontend/src/pages/PaymentPage.tsx": gen.generate_payment_page_tsx(),
+            # Round 27: Consents
+            "frontend/src/pages/ConsentPage.tsx": gen.generate_consent_page_tsx(),
         }
         for rel, content in auth_files.items():
             try:

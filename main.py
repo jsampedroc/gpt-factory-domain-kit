@@ -1163,6 +1163,9 @@ public class SecurityConfig {{
         api_paths = [f"{mod['name'].lower()}s" for mod in (dashboard_modules or [])] + ["dashboard"]
         rate_limit_filter_java = tg.generate_rate_limit_filter(config_pkg, api_paths)
         domain_event_interface = tg.generate_domain_event_interface(pkg)
+        websocket_config_java = tg.generate_websocket_config(config_pkg)
+        notification_message_java = tg.generate_notification_message(pkg)
+        notification_service_java = tg.generate_notification_service(pkg)
 
         # ---- Write all files ----
         pkg_path = pkg.replace(".", "/")
@@ -1182,6 +1185,9 @@ public class SecurityConfig {{
             f"backend/src/main/java/{pkg_path}/config/OpenApiConfig.java": openapi_config_java,
             f"backend/src/main/java/{pkg_path}/config/RateLimitFilter.java": rate_limit_filter_java,
             f"backend/src/main/java/{pkg_path}/config/GlobalExceptionHandler.java": exception_handler_java,
+            f"backend/src/main/java/{pkg_path}/config/WebSocketConfig.java": websocket_config_java,
+            f"backend/src/main/java/{pkg_path}/shared/NotificationMessage.java": notification_message_java,
+            f"backend/src/main/java/{pkg_path}/shared/NotificationService.java": notification_service_java,
         }
 
         # ---- Dashboard files ----
@@ -1309,7 +1315,7 @@ public class SecurityConfig {{
             except Exception as e:
                 f.log(f"⚠️ Frontend file skipped ({path}): {e}")
 
-        # ---- Auth + shared + dashboard files ----
+        # ---- Auth + shared + dashboard + WebSocket files ----
         auth_files = {
             "frontend/src/auth/keycloak.ts": gen.generate_keycloak_ts(f.project_slug),
             "frontend/src/auth/AuthProvider.tsx": gen.generate_auth_provider_tsx(),
@@ -1319,6 +1325,8 @@ public class SecurityConfig {{
             "frontend/src/types/DashboardStats.ts": gen.generate_dashboard_types(entities),
             "frontend/src/api/dashboardApi.ts": gen.generate_dashboard_api(),
             "frontend/src/pages/DashboardPage.tsx": gen.generate_dashboard_page(entities),
+            "frontend/src/hooks/useWebSocket.ts": gen.generate_websocket_hook(),
+            "frontend/src/components/Notifications/NotificationBell.tsx": gen.generate_notification_bell(),
         }
         for rel, content in auth_files.items():
             try:

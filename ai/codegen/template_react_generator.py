@@ -498,11 +498,14 @@ export default function {entity}Page() {{
                 "react": "^18.3.1",
                 "react-dom": "^18.3.1",
                 "react-router-dom": "^6.23.1",
-                "keycloak-js": "^24.0.5"
+                "keycloak-js": "^24.0.5",
+                "@stomp/stompjs": "^7.0.0",
+                "sockjs-client": "^1.6.1"
             },
             "devDependencies": {
                 "@types/react": "^18.3.3",
                 "@types/react-dom": "^18.3.0",
+                "@types/sockjs-client": "^1.5.4",
                 "@vitejs/plugin-react": "^4.3.0",
                 "typescript": "^5.4.5",
                 "vite": "^5.2.12"
@@ -917,6 +920,7 @@ export default function DashboardPage() {{
         return f"""import {{ Link, Navigate, Route, Routes }} from 'react-router-dom';
 import {{ useAuth }} from './auth/AuthProvider';
 import DashboardPage from './pages/DashboardPage';
+import NotificationBell from './components/Notifications/NotificationBell';
 {imports_pages}
 
 export default function App() {{
@@ -942,6 +946,7 @@ export default function App() {{
         <span style={{{{ marginLeft: 'auto', color: '#fff' }}}}>
           {{username}} ({{roles.join(', ')}})
         </span>
+        <NotificationBell />
         <button
           onClick={{logout}}
           style={{{{ background: 'rgba(255,255,255,.15)', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }}}}
@@ -956,4 +961,140 @@ export default function App() {{
     </>
   );
 }}
+"""
+
+    def generate_websocket_hook(self, api_base_var: str = "API_BASE") -> str:
+        """
+        Generates useWebSocket.ts — connects via STOMP/SockJS to /ws
+        and subscribes to /topic/notifications.
+        """
+        return f"""import {{ useEffect, useState }} from 'react';
+import {{ Client }} from '@stomp/stompjs';
+import SockJS from 'sockjs-client';
+import {{ {api_base_var} }} from '../config/api';
+
+export interface WsNotification {{
+  type: 'CREATED' | 'UPDATED' | 'DELETED';
+  entityType: string;
+  message: string;
+  timestamp: string;
+}}
+
+export function useWebSocket() {{
+  const [notifications, setNotifications] = useState<WsNotification[]>([]);
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {{
+    const client = new Client({{
+      webSocketFactory: () => new SockJS(`${{{api_base_var}}}/ws`),
+      reconnectDelay: 5000,
+      onConnect: () => {{
+        client.subscribe('/topic/notifications', (msg) => {{
+          const notification: WsNotification = JSON.parse(msg.body);
+          setNotifications(prev => [notification, ...prev].slice(0, 50));
+          setUnread(prev => prev + 1);
+        }});
+      }},
+    }});
+    client.activate();
+    return () => {{ client.deactivate(); }};
+  }}, []);
+
+  const markAllRead = () => setUnread(0);
+  const clearAll = () => {{ setNotifications([]); setUnread(0); }};
+
+  return {{ notifications, unread, markAllRead, clearAll }};
+}}
+"""
+
+    def generate_notification_bell(self) -> str:
+        """
+        Generates NotificationBell.tsx — bell icon with unread badge and dropdown panel.
+        Color-coded: green=CREATED, blue=UPDATED, red=DELETED.
+        """
+        return """import { useState } from 'react';
+import { useWebSocket } from '../../hooks/useWebSocket';
+
+const TYPE_COLOR: Record<string, string> = {
+  CREATED: '#2e7d32',
+  UPDATED: '#1565c0',
+  DELETED: '#c62828',
+};
+
+export default function NotificationBell() {
+  const { notifications, unread, markAllRead, clearAll } = useWebSocket();
+  const [open, setOpen] = useState(false);
+
+  const toggle = () => {
+    setOpen(v => !v);
+    if (!open) markAllRead();
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={toggle}
+        style={{
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          fontSize: 22, color: '#fff', position: 'relative', padding: '0 4px'
+        }}
+        title="Notificaciones"
+      >
+        🔔
+        {unread > 0 && (
+          <span style={{
+            position: 'absolute', top: -4, right: -4,
+            background: '#f44336', color: '#fff',
+            borderRadius: '50%', fontSize: 10, fontWeight: 700,
+            width: 16, height: 16, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', right: 0, top: 36,
+          width: 340, maxHeight: 420, overflowY: 'auto',
+          background: '#fff', borderRadius: 8,
+          boxShadow: '0 4px 20px rgba(0,0,0,.2)', zIndex: 1000,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid #eee' }}>
+            <strong style={{ color: '#333' }}>Notificaciones</strong>
+            {notifications.length > 0 && (
+              <button onClick={clearAll} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: 12 }}>
+                Limpiar todo
+              </button>
+            )}
+          </div>
+
+          {notifications.length === 0 ? (
+            <p style={{ padding: 16, color: '#999', textAlign: 'center', margin: 0 }}>Sin notificaciones</p>
+          ) : (
+            notifications.map((n, i) => (
+              <div key={i} style={{ padding: '10px 14px', borderBottom: '1px solid #f5f5f5' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                    color: TYPE_COLOR[n.type] ?? '#555',
+                    background: (TYPE_COLOR[n.type] ?? '#555') + '18',
+                    borderRadius: 4, padding: '1px 6px',
+                  }}>
+                    {n.type}
+                  </span>
+                  <span style={{ fontSize: 11, color: '#aaa' }}>
+                    {new Date(n.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: '#444' }}>{n.message}</p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 """

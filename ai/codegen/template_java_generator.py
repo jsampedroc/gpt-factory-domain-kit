@@ -717,6 +717,98 @@ public class RateLimitFilter extends OncePerRequestFilter {{
 }}
 """
 
+    def generate_websocket_config(self, package_name: str) -> str:
+        """
+        Generates Spring WebSocket configuration (STOMP over SockJS).
+        Frontend connects to /ws, publishes to /app/*, subscribes to /topic/*.
+        """
+        return f"""package {package_name};
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
+import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
+import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+
+/**
+ * WebSocket configuration (STOMP protocol over SockJS).
+ * Clients connect to /ws and subscribe to /topic/notifications for real-time updates.
+ */
+@Configuration
+@EnableWebSocketMessageBroker
+public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {{
+
+    @Override
+    public void registerStompEndpoints(StompEndpointRegistry registry) {{
+        registry.addEndpoint("/ws")
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
+    }}
+
+    @Override
+    public void configureMessageBroker(MessageBrokerRegistry registry) {{
+        registry.enableSimpleBroker("/topic");
+        registry.setApplicationDestinationPrefixes("/app");
+    }}
+}}
+"""
+
+    def generate_notification_message(self, base_package: str) -> str:
+        """
+        Generates the NotificationMessage record used for WebSocket payloads.
+        """
+        return f"""package {base_package}.shared;
+
+import java.time.Instant;
+
+/**
+ * Payload sent over WebSocket to subscribed clients.
+ * type: CREATED | UPDATED | DELETED
+ * entityType: the domain entity name (e.g. Patient, Appointment)
+ */
+public record NotificationMessage(
+        String type,
+        String entityType,
+        String message,
+        Instant timestamp) {{
+
+    public static NotificationMessage of(String type, String entityType, String message) {{
+        return new NotificationMessage(type, entityType, message, Instant.now());
+    }}
+}}
+"""
+
+    def generate_notification_service(self, base_package: str) -> str:
+        """
+        Generates the NotificationService that broadcasts domain events over WebSocket.
+        """
+        return f"""package {base_package}.shared;
+
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+
+/**
+ * Broadcasts domain event notifications to all connected WebSocket clients.
+ * Clients subscribe to /topic/notifications to receive real-time updates.
+ */
+@Service
+public class NotificationService {{
+
+    private static final String TOPIC = "/topic/notifications";
+
+    private final SimpMessagingTemplate messagingTemplate;
+
+    public NotificationService(SimpMessagingTemplate messagingTemplate) {{
+        this.messagingTemplate = messagingTemplate;
+    }}
+
+    public void send(String type, String entityType, String message) {{
+        NotificationMessage msg = NotificationMessage.of(type, entityType, message);
+        messagingTemplate.convertAndSend(TOPIC, msg);
+    }}
+}}
+"""
+
     def generate_integration_tests(self, base_package: str, modules: list[dict], project_slug: str) -> dict[str, str]:
         """
         Generates Testcontainers integration tests for each module.

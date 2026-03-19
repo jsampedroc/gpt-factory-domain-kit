@@ -4670,3 +4670,887 @@ public class ClinicalPhotosController {{
     ) {{}}
 }}
 """
+
+    def generate_cash_register_controller(self, base_package: str) -> str:
+        """
+        Generates CashRegisterController.java - daily cash reconciliation and closing.
+        Round 35.
+        """
+        return f"""\
+package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * REST controller for daily cash reconciliation (Cuadre de Caja Diario).
+ * Round 35 - in-memory stub. Wire with real payment storage in production.
+ */
+@RestController
+@RequestMapping("/api/cash-register")
+@Tag(name = "Cash Register", description = "Daily cash reconciliation and closing")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+@CrossOrigin(origins = "*")
+public class CashRegisterController {{
+
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter DT_FMT   = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+    private static final DateTimeFormatter TIME_FMT  = DateTimeFormatter.ofPattern("HH:mm");
+
+    /** Closed sessions keyed by date string */
+    private final ConcurrentHashMap<String, ClosedSessionRecord> closedSessions = new ConcurrentHashMap<>();
+
+    // -------------------------------------------------------------------------
+    // Stub data - last 5 days of transactions
+    // -------------------------------------------------------------------------
+    private List<Transaction> generateTransactionsForDate(String date) {{
+        List<Transaction> txs = new ArrayList<>();
+        String[] dentists = {{"Dr. García", "Dra. López", "Dr. Martínez"}};
+        String[] patients = {{"Ana Pérez", "Carlos Ruiz", "María Torres", "José Fernández",
+                              "Laura Gómez", "Miguel Sánchez", "Elena Díaz", "Pedro Morales"}};
+        String[] methods  = {{"CASH", "CARD", "TRANSFER", "INSURANCE"}};
+        String[] procs    = {{"Empaste", "Limpieza dental", "Extracción", "Ortodoncia revisión",
+                              "Corona porcelana", "Endodoncia", "Blanqueamiento", "Implante revisión"}};
+        String[] times    = {{"09:15", "09:45", "10:30", "11:00", "11:45", "12:15", "16:00", "17:30"}};
+        double[] amounts  = {{85.0, 120.0, 65.0, 95.0, 350.0, 220.0, 180.0, 75.0}};
+
+        for (int i = 0; i < 8; i++) {{
+            txs.add(new Transaction(
+                UUID.randomUUID(),
+                patients[i],
+                dentists[i % dentists.length],
+                methods[i % methods.length],
+                BigDecimal.valueOf(amounts[i]).setScale(2, RoundingMode.HALF_UP),
+                times[i],
+                procs[i]
+            ));
+        }}
+        return txs;
+    }}
+
+    /** Build closed sessions for last 4 days (today is open) */
+    private void ensureHistorySeeded() {{
+        if (!closedSessions.isEmpty()) return;
+        String[] statuses = {{"BALANCED", "SURPLUS", "DEFICIT", "BALANCED"}};
+        String[] closedBy = {{"Admin", "Dra. López", "Admin", "Dr. García"}};
+        for (int d = 4; d >= 1; d--) {{
+            String date = LocalDate.now().minusDays(d).format(DATE_FMT);
+            BigDecimal total = BigDecimal.valueOf(1190.0).setScale(2, RoundingMode.HALF_UP);
+            closedSessions.put(date, new ClosedSessionRecord(
+                date, total, statuses[d - 1], closedBy[d - 1],
+                LocalDate.now().minusDays(d).atTime(19, 0).format(DT_FMT),
+                ""
+            ));
+        }}
+    }}
+
+    // -------------------------------------------------------------------------
+    // GET /api/cash-register/summary?date=YYYY-MM-DD
+    // -------------------------------------------------------------------------
+    @GetMapping("/summary")
+    public ResponseEntity<DailySummary> getSummary(@RequestParam(required = false) String date) {{
+        ensureHistorySeeded();
+        String targetDate = (date != null && !date.isBlank()) ? date : LocalDate.now().format(DATE_FMT);
+        List<Transaction> txs = generateTransactionsForDate(targetDate);
+
+        BigDecimal totalCash     = sum(txs, "CASH");
+        BigDecimal totalCard     = sum(txs, "CARD");
+        BigDecimal totalTransfer = sum(txs, "TRANSFER");
+        BigDecimal totalInsurance= sum(txs, "INSURANCE");
+        BigDecimal grandTotal    = totalCash.add(totalCard).add(totalTransfer).add(totalInsurance);
+
+        // By dentist
+        Map<String, List<Transaction>> byDentist = txs.stream()
+            .collect(Collectors.groupingBy(Transaction::dentistName));
+        List<DentistSummary> dentistSummaries = byDentist.entrySet().stream()
+            .map(e -> new DentistSummary(
+                e.getKey(),
+                e.getValue().stream().map(Transaction::amount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP),
+                e.getValue().size()))
+            .collect(Collectors.toList());
+
+        // By insurance (only INSURANCE transactions)
+        List<Transaction> insuranceTxs = txs.stream()
+            .filter(t -> "INSURANCE".equals(t.method())).collect(Collectors.toList());
+        List<InsuranceSummary> insuranceSummaries = List.of(
+            new InsuranceSummary("Adeslas", totalInsurance, insuranceTxs.size())
+        );
+
+        ClosedSessionRecord closed = closedSessions.get(targetDate);
+        boolean isClosed = closed != null;
+        String closedAt = isClosed ? closed.closedAt() : null;
+        String closedBy = isClosed ? closed.closedBy() : null;
+
+        return ResponseEntity.ok(new DailySummary(
+            targetDate, totalCash, totalCard, totalTransfer, totalInsurance, grandTotal,
+            txs.size(), dentistSummaries, insuranceSummaries, isClosed, closedAt, closedBy
+        ));
+    }}
+
+    // -------------------------------------------------------------------------
+    // POST /api/cash-register/close
+    // -------------------------------------------------------------------------
+    @PostMapping("/close")
+    public ResponseEntity<CloseResponse> closeRegister(@RequestBody CloseRequest req) {{
+        ensureHistorySeeded();
+        String targetDate = (req.date() != null && !req.date().isBlank())
+            ? req.date() : LocalDate.now().format(DATE_FMT);
+        List<Transaction> txs = generateTransactionsForDate(targetDate);
+        BigDecimal systemTotal = txs.stream().map(Transaction::amount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal physical = req.physicalCashCount() != null
+            ? req.physicalCashCount() : BigDecimal.ZERO;
+        BigDecimal difference = physical.subtract(systemTotal).setScale(2, RoundingMode.HALF_UP);
+        String status;
+        if (difference.abs().compareTo(BigDecimal.ONE) < 0) status = "BALANCED";
+        else if (difference.compareTo(BigDecimal.ZERO) > 0)  status = "SURPLUS";
+        else                                                   status = "DEFICIT";
+
+        String closedAt = LocalDateTime.now().format(DT_FMT);
+        String closedBy = req.closedBy() != null ? req.closedBy() : "Admin";
+        closedSessions.put(targetDate, new ClosedSessionRecord(
+            targetDate, systemTotal, status, closedBy, closedAt, req.notes() != null ? req.notes() : ""
+        ));
+
+        return ResponseEntity.ok(new CloseResponse(
+            targetDate, systemTotal, physical, difference, status, closedAt
+        ));
+    }}
+
+    // -------------------------------------------------------------------------
+    // GET /api/cash-register/history?months=3
+    // -------------------------------------------------------------------------
+    @GetMapping("/history")
+    public ResponseEntity<List<ClosedSession>> getHistory(
+            @RequestParam(defaultValue = "3") int months) {{
+        ensureHistorySeeded();
+        List<ClosedSession> result = closedSessions.values().stream()
+            .sorted(Comparator.comparing(ClosedSessionRecord::date).reversed())
+            .map(r -> new ClosedSession(r.date(), r.total(), r.status(), r.closedBy(), r.closedAt()))
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }}
+
+    // -------------------------------------------------------------------------
+    // GET /api/cash-register/transactions?date=YYYY-MM-DD
+    // -------------------------------------------------------------------------
+    @GetMapping("/transactions")
+    public ResponseEntity<List<Transaction>> getTransactions(
+            @RequestParam(required = false) String date) {{
+        String targetDate = (date != null && !date.isBlank()) ? date : LocalDate.now().format(DATE_FMT);
+        return ResponseEntity.ok(generateTransactionsForDate(targetDate));
+    }}
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+    private BigDecimal sum(List<Transaction> txs, String method) {{
+        return txs.stream()
+            .filter(t -> method.equals(t.method()))
+            .map(Transaction::amount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add)
+            .setScale(2, RoundingMode.HALF_UP);
+    }}
+
+    // -------------------------------------------------------------------------
+    // Records / DTOs
+    // -------------------------------------------------------------------------
+    public record DailySummary(
+        String date,
+        BigDecimal totalCash,
+        BigDecimal totalCard,
+        BigDecimal totalTransfer,
+        BigDecimal totalInsurance,
+        BigDecimal grandTotal,
+        int transactionCount,
+        List<DentistSummary> byDentist,
+        List<InsuranceSummary> byInsurance,
+        boolean closed,
+        String closedAt,
+        String closedBy
+    ) {{}}
+
+    public record DentistSummary(String dentistName, BigDecimal total, int count) {{}}
+
+    public record InsuranceSummary(String insuranceName, BigDecimal total, int count) {{}}
+
+    public record CloseRequest(
+        String date, String closedBy, String notes, BigDecimal physicalCashCount
+    ) {{}}
+
+    public record CloseResponse(
+        String date,
+        BigDecimal systemTotal,
+        BigDecimal physicalCount,
+        BigDecimal difference,
+        String status,
+        String closedAt
+    ) {{}}
+
+    public record ClosedSession(
+        String date, BigDecimal total, String status, String closedBy, String closedAt
+    ) {{}}
+
+    public record Transaction(
+        UUID id, String patientName, String dentistName, String method,
+        BigDecimal amount, String time, String procedure
+    ) {{}}
+
+    private record ClosedSessionRecord(
+        String date, BigDecimal total, String status, String closedBy,
+        String closedAt, String notes
+    ) {{}}
+}}
+"""
+
+    def generate_agenda_controller(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/agenda")
+@Tag(name = "Agenda", description = "Advanced agenda: dentist view and schedule blocks")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class AgendaController {{
+
+    // ---- In-memory stores ----
+    private final Map<UUID, DentistCalendarView> dentistStore = new ConcurrentHashMap<>();
+    private final List<CalendarAppointment> appointmentStore = new ArrayList<>();
+    private final Map<UUID, ScheduleBlock> blockStore = new ConcurrentHashMap<>();
+
+    public AgendaController() {{
+        // Pre-populate 4 dentists
+        DentistCalendarView d1 = new DentistCalendarView(UUID.fromString("00000000-0000-0000-0000-000000000001"), "Dra. García",     "#1976d2", "Ortodoncia",       true);
+        DentistCalendarView d2 = new DentistCalendarView(UUID.fromString("00000000-0000-0000-0000-000000000002"), "Dr. Martínez",    "#e53935", "Endodoncia",       true);
+        DentistCalendarView d3 = new DentistCalendarView(UUID.fromString("00000000-0000-0000-0000-000000000003"), "Dra. López",      "#43a047", "Periodoncia",      true);
+        DentistCalendarView d4 = new DentistCalendarView(UUID.fromString("00000000-0000-0000-0000-000000000004"), "Dr. Fernández",   "#8e24aa", "Implantología",    true);
+        dentistStore.put(d1.id(), d1);
+        dentistStore.put(d2.id(), d2);
+        dentistStore.put(d3.id(), d3);
+        dentistStore.put(d4.id(), d4);
+
+        // Pre-populate 10 stub appointments across 2 dentists
+        String today = java.time.LocalDate.now().toString();
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d1.id(), d1.name(), d1.color(), UUID.randomUUID(), "Ana Pérez",     today, "09:00", "09:45", "Revisión",           "CONFIRMED",  "Box 1"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d1.id(), d1.name(), d1.color(), UUID.randomUUID(), "Luis Gómez",    today, "10:00", "10:30", "Limpieza",            "CONFIRMED",  "Box 1"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d1.id(), d1.name(), d1.color(), UUID.randomUUID(), "María Ruiz",    today, "11:00", "12:00", "Ortodoncia control",  "PENDING",    "Box 1"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d1.id(), d1.name(), d1.color(), UUID.randomUUID(), "Carlos Díaz",   today, "12:00", "13:00", "Extracción",          "CONFIRMED",  "Box 1"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d1.id(), d1.name(), d1.color(), UUID.randomUUID(), "Elena Sanz",    today, "16:00", "17:00", "Empaste",             "CANCELLED",  "Box 1"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d2.id(), d2.name(), d2.color(), UUID.randomUUID(), "Pedro Mora",    today, "09:30", "10:30", "Endodoncia",          "CONFIRMED",  "Box 2"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d2.id(), d2.name(), d2.color(), UUID.randomUUID(), "Sofía Castro",  today, "10:30", "11:00", "Revisión",            "CONFIRMED",  "Box 2"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d2.id(), d2.name(), d2.color(), UUID.randomUUID(), "Javier Ramos",  today, "11:30", "12:30", "Corona provisional",  "PENDING",    "Box 2"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d2.id(), d2.name(), d2.color(), UUID.randomUUID(), "Laura Vega",    today, "14:00", "15:00", "Blanqueamiento",      "CONFIRMED",  "Box 2"));
+        appointmentStore.add(new CalendarAppointment(UUID.randomUUID(), d2.id(), d2.name(), d2.color(), UUID.randomUUID(), "Miguel Torres", today, "15:30", "16:30", "Implante fase 1",     "CONFIRMED",  "Box 2"));
+
+        // Pre-populate 3 demo blocks
+        String tomorrow = java.time.LocalDate.now().plusDays(1).toString();
+        String nextWeek = java.time.LocalDate.now().plusDays(7).toString();
+        blockStore.put(UUID.fromString("10000000-0000-0000-0000-000000000001"),
+            new ScheduleBlock(UUID.fromString("10000000-0000-0000-0000-000000000001"), d3.id(), d3.name(), tomorrow, tomorrow, "14:00", "18:00", "Formación implantes", "TRAINING"));
+        blockStore.put(UUID.fromString("10000000-0000-0000-0000-000000000002"),
+            new ScheduleBlock(UUID.fromString("10000000-0000-0000-0000-000000000002"), d4.id(), d4.name(), nextWeek, java.time.LocalDate.now().plusDays(14).toString(), "09:00", "19:00", "Vacaciones verano", "VACATION"));
+        blockStore.put(UUID.fromString("10000000-0000-0000-0000-000000000003"),
+            new ScheduleBlock(UUID.fromString("10000000-0000-0000-0000-000000000003"), d1.id(), d1.name(), today, today, "13:00", "14:00", "Mantenimiento Box 1", "MAINTENANCE"));
+    }}
+
+    // GET /api/agenda/dentists
+    @GetMapping("/dentists")
+    public ResponseEntity<List<DentistCalendarView>> getDentists() {{
+        return ResponseEntity.ok(new ArrayList<>(dentistStore.values()));
+    }}
+
+    // GET /api/agenda/appointments?dentistId=&date=YYYY-MM-DD
+    @GetMapping("/appointments")
+    public ResponseEntity<List<CalendarAppointment>> getAppointments(
+            @RequestParam(required = false) UUID dentistId,
+            @RequestParam(required = false) String date) {{
+        List<CalendarAppointment> result = appointmentStore.stream()
+            .filter(a -> dentistId == null || a.dentistId().equals(dentistId))
+            .filter(a -> date == null || a.date().equals(date))
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }}
+
+    // GET /api/agenda/blocks
+    @GetMapping("/blocks")
+    public ResponseEntity<List<ScheduleBlock>> getBlocks() {{
+        return ResponseEntity.ok(new ArrayList<>(blockStore.values()));
+    }}
+
+    // POST /api/agenda/blocks
+    @PostMapping("/blocks")
+    public ResponseEntity<ScheduleBlock> createBlock(@RequestBody BlockRequest req) {{
+        String dentistName = dentistStore.containsKey(req.dentistId())
+            ? dentistStore.get(req.dentistId()).name() : "Desconocido";
+        UUID id = UUID.randomUUID();
+        ScheduleBlock block = new ScheduleBlock(id, req.dentistId(), dentistName,
+            req.startDate(), req.endDate(), req.startTime(), req.endTime(), req.reason(), req.type());
+        blockStore.put(id, block);
+        return ResponseEntity.ok(block);
+    }}
+
+    // DELETE /api/agenda/blocks/{{id}}
+    @DeleteMapping("/blocks/{{id}}")
+    public ResponseEntity<Void> deleteBlock(@PathVariable UUID id) {{
+        blockStore.remove(id);
+        return ResponseEntity.noContent().build();
+    }}
+
+    // ---- Records ----
+    public record DentistCalendarView(UUID id, String name, String color, String specialty, boolean active) {{}}
+
+    public record CalendarAppointment(
+        UUID id, UUID dentistId, String dentistName, String dentistColor,
+        UUID patientId, String patientName, String date, String startTime, String endTime,
+        String procedure, String status, String operatory
+    ) {{}}
+
+    public record ScheduleBlock(
+        UUID id, UUID dentistId, String dentistName,
+        String startDate, String endDate, String startTime, String endTime,
+        String reason, String type
+    ) {{}}
+
+    public record BlockRequest(
+        UUID dentistId, String startDate, String endDate,
+        String startTime, String endTime, String reason, String type
+    ) {{}}
+}}
+"""
+
+    # ------------------------------------------------------------------ #
+    #  Round 36 - Recurring Appointments                                   #
+    # ------------------------------------------------------------------ #
+    def generate_recurring_appointments_controller(self, base_package: str) -> str:
+        """
+        Generates RecurringAppointmentController.java — recurring appointment series management.
+        Round 36.
+        """
+        return f"""\
+package {base_package}.shared;
+
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * REST controller for recurring appointment series management.
+ * Round 36 — in-memory store with auto-generated occurrences.
+ */
+@RestController
+@RequestMapping("/api/recurring")
+@Tag(name = "Recurring Appointments", description = "Recurring appointment series management")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class RecurringAppointmentController {{
+
+    private static final Map<UUID, RecurringSeries> SERIES_STORE = new ConcurrentHashMap<>();
+    private static final Map<UUID, List<RecurringOccurrence>> OCCURRENCE_STORE = new ConcurrentHashMap<>();
+
+    static {{
+        // Demo series 1: Orthodontics monthly
+        UUID s1 = UUID.fromString("36000000-0000-0000-0000-000000000001");
+        UUID p1 = UUID.fromString("11000000-0000-0000-0000-000000000001");
+        UUID d1 = UUID.fromString("22000000-0000-0000-0000-000000000001");
+        List<RecurringOccurrence> occ1 = generateOccurrences(s1, "2025-01-10", "2025-12-10",
+                "MONTHLY", "FRIDAY", "10:00", 60);
+        long done1 = occ1.stream().filter(o -> "COMPLETED".equals(o.status())).count();
+        SERIES_STORE.put(s1, new RecurringSeries(s1, p1, "Ana García", d1, "Dr. García",
+                "Ortodoncia", "2025-01-10", "2025-12-10", "MONTHLY", "FRIDAY", "10:00", 60,
+                "Control mensual de brackets", "ACTIVE", occ1.size(), (int) done1));
+        OCCURRENCE_STORE.put(s1, occ1);
+
+        // Demo series 2: Hygiene semiannual
+        UUID s2 = UUID.fromString("36000000-0000-0000-0000-000000000002");
+        UUID p2 = UUID.fromString("11000000-0000-0000-0000-000000000002");
+        UUID d2 = UUID.fromString("22000000-0000-0000-0000-000000000002");
+        List<RecurringOccurrence> occ2 = generateOccurrences(s2, "2024-06-15", "2026-06-15",
+                "SEMIANNUAL", "MONDAY", "09:00", 45);
+        long done2 = occ2.stream().filter(o -> "COMPLETED".equals(o.status())).count();
+        SERIES_STORE.put(s2, new RecurringSeries(s2, p2, "Carlos López", d2, "Dra. López",
+                "Higiene dental", "2024-06-15", "2026-06-15", "SEMIANNUAL", "MONDAY", "09:00", 45,
+                "Limpieza semestral", "ACTIVE", occ2.size(), (int) done2));
+        OCCURRENCE_STORE.put(s2, occ2);
+
+        // Demo series 3: Annual checkup
+        UUID s3 = UUID.fromString("36000000-0000-0000-0000-000000000003");
+        UUID p3 = UUID.fromString("11000000-0000-0000-0000-000000000003");
+        UUID d3 = UUID.fromString("22000000-0000-0000-0000-000000000003");
+        List<RecurringOccurrence> occ3 = generateOccurrences(s3, "2022-03-20", "2027-03-20",
+                "ANNUAL", "WEDNESDAY", "11:00", 30);
+        long done3 = occ3.stream().filter(o -> "COMPLETED".equals(o.status())).count();
+        SERIES_STORE.put(s3, new RecurringSeries(s3, p3, "María Fernández", d3, "Dr. Martínez",
+                "Revisión anual", "2022-03-20", "2027-03-20", "ANNUAL", "WEDNESDAY", "11:00", 30,
+                "Chequeo anual completo", "ACTIVE", occ3.size(), (int) done3));
+        OCCURRENCE_STORE.put(s3, occ3);
+    }}
+
+    /** GET /api/recurring/patient/{{patientId}} — list recurring series for a patient */
+    @GetMapping("/patient/{{patientId}}")
+    public ResponseEntity<List<RecurringSeries>> listByPatient(@PathVariable UUID patientId) {{
+        List<RecurringSeries> result = SERIES_STORE.values().stream()
+                .filter(s -> patientId.equals(s.patientId()))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }}
+
+    /** POST /api/recurring — create a recurring series */
+    @PostMapping
+    public ResponseEntity<RecurringSeries> createSeries(@RequestBody RecurringSeriesRequest req) {{
+        UUID seriesId = UUID.randomUUID();
+        List<RecurringOccurrence> occurrences = generateOccurrences(
+                seriesId, req.startDate(), req.endDate(), req.frequency(),
+                req.dayOfWeek(), req.time(), req.durationMinutes());
+        RecurringSeries series = new RecurringSeries(
+                seriesId, req.patientId(), "Paciente", req.dentistId(), "Dentista",
+                req.procedure(), req.startDate(), req.endDate(), req.frequency(),
+                req.dayOfWeek(), req.time(), req.durationMinutes(),
+                req.notes(), "ACTIVE", occurrences.size(), 0);
+        SERIES_STORE.put(seriesId, series);
+        OCCURRENCE_STORE.put(seriesId, occurrences);
+        return ResponseEntity.ok(series);
+    }}
+
+    /** DELETE /api/recurring/{{seriesId}} — cancel entire series */
+    @DeleteMapping("/{{seriesId}}")
+    public ResponseEntity<Map<String, String>> cancelSeries(@PathVariable UUID seriesId) {{
+        RecurringSeries existing = SERIES_STORE.get(seriesId);
+        if (existing == null) return ResponseEntity.notFound().build();
+        RecurringSeries cancelled = new RecurringSeries(
+                existing.id(), existing.patientId(), existing.patientName(),
+                existing.dentistId(), existing.dentistName(), existing.procedure(),
+                existing.startDate(), existing.endDate(), existing.frequency(),
+                existing.dayOfWeek(), existing.time(), existing.durationMinutes(),
+                existing.notes(), "CANCELLED", existing.totalOccurrences(), existing.completedOccurrences());
+        SERIES_STORE.put(seriesId, cancelled);
+        List<RecurringOccurrence> occs = OCCURRENCE_STORE.getOrDefault(seriesId, new ArrayList<>());
+        List<RecurringOccurrence> updated = occs.stream().map(o ->
+                "SCHEDULED".equals(o.status())
+                        ? new RecurringOccurrence(o.id(), o.seriesId(), o.date(), o.time(), "CANCELLED", o.notes())
+                        : o
+        ).collect(Collectors.toList());
+        OCCURRENCE_STORE.put(seriesId, updated);
+        return ResponseEntity.ok(Map.of("message", "Serie cancelada", "seriesId", seriesId.toString()));
+    }}
+
+    /** GET /api/recurring/{{seriesId}}/occurrences — list all generated occurrences */
+    @GetMapping("/{{seriesId}}/occurrences")
+    public ResponseEntity<List<RecurringOccurrence>> listOccurrences(@PathVariable UUID seriesId) {{
+        List<RecurringOccurrence> occs = OCCURRENCE_STORE.getOrDefault(seriesId, Collections.emptyList());
+        return ResponseEntity.ok(occs);
+    }}
+
+    /** POST /api/recurring/{{seriesId}}/skip/{{occurrenceDate}} — skip one occurrence */
+    @PostMapping("/{{seriesId}}/skip/{{occurrenceDate}}")
+    public ResponseEntity<RecurringOccurrence> skipOccurrence(
+            @PathVariable UUID seriesId,
+            @PathVariable String occurrenceDate) {{
+        List<RecurringOccurrence> occs = OCCURRENCE_STORE.getOrDefault(seriesId, new ArrayList<>());
+        List<RecurringOccurrence> updated = new ArrayList<>();
+        RecurringOccurrence skipped = null;
+        for (RecurringOccurrence o : occs) {{
+            if (occurrenceDate.equals(o.date()) && "SCHEDULED".equals(o.status())) {{
+                skipped = new RecurringOccurrence(o.id(), o.seriesId(), o.date(), o.time(), "SKIPPED", o.notes());
+                updated.add(skipped);
+            }} else {{
+                updated.add(o);
+            }}
+        }}
+        OCCURRENCE_STORE.put(seriesId, updated);
+        if (skipped == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(skipped);
+    }}
+
+    // ---- Helpers ----
+
+    private static List<RecurringOccurrence> generateOccurrences(
+            UUID seriesId, String startDate, String endDate,
+            String frequency, String dayOfWeek, String time, int durationMinutes) {{
+        List<RecurringOccurrence> list = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        try {{
+            LocalDate start = LocalDate.parse(startDate);
+            LocalDate end = LocalDate.parse(endDate);
+            LocalDate current = start;
+            while (!current.isAfter(end)) {{
+                String status = current.isBefore(today) ? "COMPLETED" : "SCHEDULED";
+                list.add(new RecurringOccurrence(UUID.randomUUID(), seriesId,
+                        current.format(DateTimeFormatter.ISO_LOCAL_DATE), time, status, ""));
+                current = nextDate(current, frequency);
+                if (list.size() > 500) break; // safety cap
+            }}
+        }} catch (Exception ignored) {{}}
+        return list;
+    }}
+
+    private static LocalDate nextDate(LocalDate current, String frequency) {{
+        return switch (frequency) {{
+            case "WEEKLY"     -> current.plusWeeks(1);
+            case "BIWEEKLY"   -> current.plusWeeks(2);
+            case "MONTHLY"    -> current.plusMonths(1);
+            case "QUARTERLY"  -> current.plusMonths(3);
+            case "SEMIANNUAL" -> current.plusMonths(6);
+            case "ANNUAL"     -> current.plusYears(1);
+            default           -> current.plusMonths(1);
+        }};
+    }}
+
+    // ---- Records ----
+
+    public record RecurringSeriesRequest(
+        UUID patientId, UUID dentistId, String procedure,
+        String startDate, String endDate, String frequency,
+        String dayOfWeek, String time, int durationMinutes, String notes
+    ) {{}}
+
+    public record RecurringSeries(
+        UUID id, UUID patientId, String patientName, UUID dentistId, String dentistName,
+        String procedure, String startDate, String endDate, String frequency,
+        String dayOfWeek, String time, int durationMinutes, String notes,
+        String status, int totalOccurrences, int completedOccurrences
+    ) {{}}
+
+    public record RecurringOccurrence(
+        UUID id, UUID seriesId, String date, String time, String status, String notes
+    ) {{}}
+}}
+"""
+
+    # ---- Round 37: GDPR / RGPD ----
+    def generate_gdpr_controller(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+@RestController
+@RequestMapping("/api/gdpr")
+@Tag(name = "GDPR", description = "RGPD compliance: data export, right to erasure, consent log")
+@PreAuthorize("hasAnyRole('ADMIN')")
+public class GdprController {{
+
+    private final List<ConsentLog> consentLog = new CopyOnWriteArrayList<>();
+
+    public GdprController() {{
+        String[] types  = {{"DATA_PROCESSING","MARKETING","MEDICAL_HISTORY","PHOTOS","THIRD_PARTY"}};
+        String[] actions = {{"GRANTED","WITHDRAWN","UPDATED"}};
+        String[][] patients = {{
+            {{"00000000-0000-0000-0000-000000000011","Ana Pérez"}},
+            {{"00000000-0000-0000-0000-000000000012","Luis Gómez"}},
+            {{"00000000-0000-0000-0000-000000000013","María Ruiz"}},
+            {{"00000000-0000-0000-0000-000000000014","Carlos Díaz"}},
+            {{"00000000-0000-0000-0000-000000000015","Elena Sanz"}}
+        }};
+        for (int i = 0; i < 10; i++) {{
+            String[] p = patients[i % patients.length];
+            consentLog.add(new ConsentLog(
+                UUID.randomUUID(),
+                UUID.fromString(p[0]),
+                p[1],
+                types[i % types.length],
+                actions[i % actions.length],
+                LocalDate.now().minusDays(i * 3L).toString(),
+                "192.168.1." + (100 + i),
+                "Registro demo #" + (i + 1)
+            ));
+        }}
+    }}
+
+    @GetMapping("/patient/{{patientId}}/export")
+    public ResponseEntity<PatientDataExport> exportPatientData(@PathVariable UUID patientId) {{
+        Map<String, Object> personal = new LinkedHashMap<>();
+        personal.put("name", "Paciente " + patientId.toString().substring(0, 8));
+        personal.put("email", "paciente@ejemplo.com");
+        personal.put("phone", "+34 600 000 000");
+        personal.put("birthDate", "1985-03-15");
+        personal.put("address", "Calle Ejemplo 1, Madrid");
+        personal.put("nationalId", "12345678A");
+        PatientDataExport export = new PatientDataExport(
+            patientId,
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            "admin", personal,
+            List.of("2024-01-10 09:00 - Revisión", "2024-03-22 11:00 - Limpieza", "2024-06-15 10:30 - Empaste"),
+            List.of("FAC-2024-001 - 85,00\u20ac", "FAC-2024-002 - 120,00\u20ac"),
+            List.of("Ortodoncia brackets metálicos", "Blanqueamiento dental"),
+            List.of("Consentimiento informado cirugía - FIRMADO 2024-01-10", "Uso de fotos - FIRMADO 2024-03-22"),
+            List.of("Recordatorio cita 2024-01-09 - Email", "Felicitación cumpleaños 2024-03-15 - SMS")
+        );
+        return ResponseEntity.ok(export);
+    }}
+
+    @PostMapping("/patient/{{patientId}}/anonymize")
+    public ResponseEntity<AnonymizeResult> anonymizePatient(@PathVariable UUID patientId) {{
+        List<String> fields = List.of(
+            "name", "email", "phone", "address", "nationalId",
+            "birthDate", "insuranceNumber", "emergencyContact", "medicalHistory"
+        );
+        return ResponseEntity.ok(new AnonymizeResult(
+            patientId,
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            "admin", fields, "COMPLETED"
+        ));
+    }}
+
+    @GetMapping("/consent-log")
+    public ResponseEntity<List<ConsentLog>> getConsentLog(
+            @RequestParam(required = false) String consentType,
+            @RequestParam(required = false) String action) {{
+        List<ConsentLog> result = consentLog.stream()
+            .filter(c -> consentType == null || consentType.isBlank() || c.consentType().equals(consentType))
+            .filter(c -> action == null || action.isBlank() || c.action().equals(action))
+            .toList();
+        return ResponseEntity.ok(result);
+    }}
+
+    @PostMapping("/consent-log")
+    public ResponseEntity<ConsentLog> logConsent(@RequestBody ConsentLogRequest req) {{
+        ConsentLog entry = new ConsentLog(
+            UUID.randomUUID(), req.patientId(),
+            "Paciente " + req.patientId().toString().substring(0, 8),
+            req.consentType(), req.action(),
+            LocalDate.now().toString(), "0.0.0.0", req.details()
+        );
+        consentLog.add(0, entry);
+        return ResponseEntity.ok(entry);
+    }}
+
+    @GetMapping("/retention-report")
+    public ResponseEntity<RetentionReport> getRetentionReport() {{
+        List<RetentionItem> items = new ArrayList<>();
+        items.add(new RetentionItem(UUID.fromString("00000000-0000-0000-0000-000000000011"), "Ana Pérez",    "2024-06-15", 0, "KEEP"));
+        items.add(new RetentionItem(UUID.fromString("00000000-0000-0000-0000-000000000012"), "Luis Gómez",   "2022-11-03", 2, "KEEP"));
+        items.add(new RetentionItem(UUID.fromString("00000000-0000-0000-0000-000000000013"), "María Ruiz",   "2021-05-20", 3, "REVIEW"));
+        items.add(new RetentionItem(UUID.fromString("00000000-0000-0000-0000-000000000014"), "Carlos Díaz",  "2020-02-14", 4, "REVIEW"));
+        items.add(new RetentionItem(UUID.fromString("00000000-0000-0000-0000-000000000015"), "Elena Sanz",   "2018-07-01", 6, "ANONYMIZE"));
+        items.add(new RetentionItem(UUID.fromString("00000000-0000-0000-0000-000000000016"), "Pedro Mora",   "2017-03-22", 7, "ANONYMIZE"));
+        items.add(new RetentionItem(UUID.fromString("00000000-0000-0000-0000-000000000017"), "Sofía Castro", "2019-12-05", 5, "REVIEW"));
+        return ResponseEntity.ok(new RetentionReport(
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            7, 2, 3, 1, items
+        ));
+    }}
+
+    public record PatientDataExport(
+        UUID patientId, String exportedAt, String requestedBy,
+        Map<String, Object> personalData,
+        List<String> appointments, List<String> invoices,
+        List<String> treatments, List<String> consents, List<String> communications
+    ) {{}}
+
+    public record AnonymizeResult(
+        UUID patientId, String anonymizedAt, String requestedBy,
+        List<String> anonymizedFields, String status
+    ) {{}}
+
+    public record ConsentLog(
+        UUID id, UUID patientId, String patientName,
+        String consentType, String action,
+        String date, String ipAddress, String details
+    ) {{}}
+
+    public record ConsentLogRequest(
+        UUID patientId, String consentType, String action, String details
+    ) {{}}
+
+    public record RetentionReport(
+        String generatedAt, int totalPatients, int activePatients,
+        int inactiveOver5Years, int anonymizedCount, List<RetentionItem> items
+    ) {{}}
+
+    public record RetentionItem(
+        UUID patientId, String name, String lastActivity, int yearsInactive, String recommendation
+    ) {{}}
+}}
+"""
+
+    # ---- Round 37: Lista de Espera / Waitlist ----
+    def generate_waitlist_controller(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/waitlist")
+@Tag(name = "Waitlist", description = "Appointment waitlist for last-minute slots")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class WaitlistController {{
+
+    private final Map<UUID, WaitlistEntry> store = new ConcurrentHashMap<>();
+
+    public WaitlistController() {{
+        Object[][] demo = {{
+            {{ UUID.fromString("00000000-0000-0000-0000-000000000011"), "Ana Pérez",    "+34 600 111 111",
+              UUID.fromString("00000000-0000-0000-0000-000000000001"), "Dra. García",
+              "Revisión ortodoncia", "L,M,X", "MORNING",   "HIGH",   "WAITING",   null }},
+            {{ UUID.fromString("00000000-0000-0000-0000-000000000012"), "Luis Gómez",   "+34 600 222 222",
+              UUID.fromString("00000000-0000-0000-0000-000000000002"), "Dr. Martínez",
+              "Endodoncia urgente",  "X,J,V", "ANY",       "HIGH",   "WAITING",   null }},
+            {{ UUID.fromString("00000000-0000-0000-0000-000000000013"), "María Ruiz",   "+34 600 333 333",
+              UUID.fromString("00000000-0000-0000-0000-000000000003"), "Dra. López",
+              "Limpieza",            "L,V",   "AFTERNOON", "NORMAL", "NOTIFIED",
+              LocalDateTime.now().minusHours(2).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) }},
+            {{ UUID.fromString("00000000-0000-0000-0000-000000000014"), "Carlos Díaz",  "+34 600 444 444",
+              UUID.fromString("00000000-0000-0000-0000-000000000001"), "Dra. García",
+              "Empaste",             "M,J",   "MORNING",   "NORMAL", "WAITING",   null }},
+            {{ UUID.fromString("00000000-0000-0000-0000-000000000015"), "Elena Sanz",   "+34 600 555 555",
+              UUID.fromString("00000000-0000-0000-0000-000000000004"), "Dr. Fernández",
+              "Implante revisión",   "L,M,X,J,V", "ANY",  "LOW",    "WAITING",   null }},
+            {{ UUID.fromString("00000000-0000-0000-0000-000000000016"), "Pedro Mora",   "+34 600 666 666",
+              UUID.fromString("00000000-0000-0000-0000-000000000002"), "Dr. Martínez",
+              "Corona provisional",  "J,V,S", "AFTERNOON", "LOW",    "WAITING",   null }},
+        }};
+        for (int i = 0; i < demo.length; i++) {{
+            UUID id = UUID.randomUUID();
+            String addedAt = LocalDateTime.now().minusDays(demo.length - i)
+                .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            store.put(id, new WaitlistEntry(
+                id,
+                (UUID)   demo[i][0],  (String) demo[i][1],  (String) demo[i][2],
+                (UUID)   demo[i][3],  (String) demo[i][4],
+                (String) demo[i][5],  (String) demo[i][6],  (String) demo[i][7],
+                (String) demo[i][8],  (String) demo[i][9],  addedAt,
+                (String) demo[i][10]
+            ));
+        }}
+    }}
+
+    @GetMapping
+    public ResponseEntity<List<WaitlistEntry>> getWaitlist() {{
+        List<WaitlistEntry> sorted = store.values().stream()
+            .sorted(Comparator.comparing((WaitlistEntry e) -> switch (e.priority()) {{
+                case "HIGH"   -> 0;
+                case "NORMAL" -> 1;
+                default       -> 2;
+            }}).thenComparing(WaitlistEntry::addedAt))
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(sorted);
+    }}
+
+    @PostMapping
+    public ResponseEntity<WaitlistEntry> addToWaitlist(@RequestBody WaitlistRequest req) {{
+        UUID id = UUID.randomUUID();
+        WaitlistEntry entry = new WaitlistEntry(
+            id, req.patientId(),
+            "Paciente " + req.patientId().toString().substring(0, 8),
+            req.patientPhone(), req.preferredDentistId(), "Dentista asignado",
+            req.procedure(), req.preferredDays(), req.preferredTime(),
+            req.priority() != null ? req.priority() : "NORMAL",
+            "WAITING",
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            null
+        );
+        store.put(id, entry);
+        return ResponseEntity.ok(entry);
+    }}
+
+    @DeleteMapping("/{{id}}")
+    public ResponseEntity<Void> removeFromWaitlist(@PathVariable UUID id) {{
+        store.remove(id);
+        return ResponseEntity.noContent().build();
+    }}
+
+    @PostMapping("/{{id}}/notify")
+    public ResponseEntity<WaitlistEntry> notifyPatient(@PathVariable UUID id) {{
+        WaitlistEntry e = store.get(id);
+        if (e == null) return ResponseEntity.notFound().build();
+        WaitlistEntry updated = new WaitlistEntry(
+            e.id(), e.patientId(), e.patientName(), e.patientPhone(),
+            e.preferredDentistId(), e.preferredDentistName(),
+            e.procedure(), e.preferredDays(), e.preferredTime(),
+            e.priority(), "NOTIFIED", e.addedAt(),
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        );
+        store.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @PostMapping("/{{id}}/book")
+    public ResponseEntity<WaitlistEntry> bookSlot(@PathVariable UUID id) {{
+        WaitlistEntry e = store.get(id);
+        if (e == null) return ResponseEntity.notFound().build();
+        WaitlistEntry updated = new WaitlistEntry(
+            e.id(), e.patientId(), e.patientName(), e.patientPhone(),
+            e.preferredDentistId(), e.preferredDentistName(),
+            e.procedure(), e.preferredDays(), e.preferredTime(),
+            e.priority(), "BOOKED", e.addedAt(), e.notifiedAt()
+        );
+        store.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @GetMapping("/available-slots")
+    public ResponseEntity<List<AvailableSlot>> getAvailableSlots(
+            @RequestParam(required = false) String date) {{
+        String targetDate = (date != null && !date.isBlank()) ? date : LocalDate.now().toString();
+        List<AvailableSlot> slots = List.of(
+            new AvailableSlot(targetDate, "09:00", UUID.fromString("00000000-0000-0000-0000-000000000001"), "Dra. García",   "Box 1"),
+            new AvailableSlot(targetDate, "11:30", UUID.fromString("00000000-0000-0000-0000-000000000002"), "Dr. Martínez",  "Box 2"),
+            new AvailableSlot(targetDate, "16:00", UUID.fromString("00000000-0000-0000-0000-000000000003"), "Dra. López",    "Box 3"),
+            new AvailableSlot(targetDate, "17:30", UUID.fromString("00000000-0000-0000-0000-000000000004"), "Dr. Fernández", "Box 4")
+        );
+        return ResponseEntity.ok(slots);
+    }}
+
+    public record WaitlistEntry(
+        UUID id, UUID patientId, String patientName, String patientPhone,
+        UUID preferredDentistId, String preferredDentistName,
+        String procedure, String preferredDays, String preferredTime,
+        String priority, String status, String addedAt, String notifiedAt
+    ) {{}}
+
+    public record WaitlistRequest(
+        UUID patientId, String patientPhone, UUID preferredDentistId,
+        String procedure, String preferredDays, String preferredTime,
+        String priority, String notes
+    ) {{}}
+
+    public record AvailableSlot(
+        String date, String time, UUID dentistId, String dentistName, String operatory
+    ) {{}}
+}}
+"""

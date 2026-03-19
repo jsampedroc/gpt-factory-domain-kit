@@ -5746,3 +5746,1860 @@ export default function OnlineBookingPage() {
   );
 }
 """
+
+    def generate_advanced_calendar_page_tsx(self) -> str:
+        return r"""import { useState, useEffect, useRef } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface DentistView {
+  id: string; name: string; color: string; specialty: string; active: boolean;
+}
+interface CalendarAppt {
+  id: string; dentistId: string; dentistName: string; dentistColor: string;
+  patientId: string; patientName: string; date: string;
+  startTime: string; endTime: string; procedure: string; status: string; operatory: string;
+}
+interface ScheduleBlock {
+  id: string; dentistId: string; dentistName: string;
+  startDate: string; endDate: string; startTime: string; endTime: string;
+  reason: string; type: string;
+}
+
+const HOURS = Array.from({ length: 11 }, (_, i) => `${(9 + i).toString().padStart(2, '0')}:00`);
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function minutesToPct(minutes: number): number {
+  // 09:00 = 0%, 19:00 = 100%  => 10 hours = 600 min
+  return ((minutes - 540) / 600) * 100;
+}
+
+function statusBg(s: string) {
+  if (s === 'CONFIRMED') return '#e8f5e9';
+  if (s === 'PENDING') return '#fff8e1';
+  if (s === 'CANCELLED') return '#ffebee';
+  return '#f5f5f5';
+}
+function statusColor(s: string) {
+  if (s === 'CONFIRMED') return '#2e7d32';
+  if (s === 'PENDING') return '#f57f17';
+  if (s === 'CANCELLED') return '#c62828';
+  return '#616161';
+}
+function typeBg(t: string) {
+  const map: Record<string, string> = {
+    VACATION: '#e3f2fd', TRAINING: '#f3e5f5', MAINTENANCE: '#fff3e0',
+    PERSONAL: '#fce4ec', HOLIDAY: '#e8f5e9',
+  };
+  return map[t] || '#f5f5f5';
+}
+function typeColor(t: string) {
+  const map: Record<string, string> = {
+    VACATION: '#1565c0', TRAINING: '#6a1b9a', MAINTENANCE: '#e65100',
+    PERSONAL: '#880e4f', HOLIDAY: '#1b5e20',
+  };
+  return map[t] || '#616161';
+}
+
+function getWeekStart(d: Date): Date {
+  const day = new Date(d);
+  const dow = day.getDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
+  day.setDate(day.getDate() + diff);
+  return day;
+}
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+function fmtDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+function fmtDisplay(d: Date): string {
+  return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+export default function AdvancedCalendarPage() {
+  const [dentists, setDentists] = useState<DentistView[]>([]);
+  const [appointments, setAppointments] = useState<CalendarAppt[]>([]);
+  const [blocks, setBlocks] = useState<ScheduleBlock[]>([]);
+  const [selectedDentists, setSelectedDentists] = useState<Set<string>>(new Set());
+  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
+  const [showBlockPanel, setShowBlockPanel] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(fmtDate(new Date()));
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; dentist: string; hour: string } | null>(null);
+
+  // Block form state
+  const [bDentistId, setBDentistId] = useState('');
+  const [bStartDate, setBStartDate] = useState(fmtDate(new Date()));
+  const [bEndDate, setBEndDate] = useState(fmtDate(new Date()));
+  const [bAllDay, setBAllDay] = useState(false);
+  const [bStartTime, setBStartTime] = useState('09:00');
+  const [bEndTime, setBEndTime] = useState('19:00');
+  const [bReason, setBReason] = useState('');
+  const [bType, setBType] = useState('VACATION');
+  const [saving, setSaving] = useState(false);
+
+  // Current time indicator
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch(`${API_BASE}/api/agenda/dentists`);
+        const data: DentistView[] = await res.json();
+        setDentists(data.filter(d => d.active));
+        setSelectedDentists(new Set(data.filter(d => d.active).map(d => d.id)));
+      } catch {}
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch(`${API_BASE}/api/agenda/appointments?date=${selectedDate}`);
+        const data: CalendarAppt[] = await res.json();
+        setAppointments(data);
+      } catch {}
+    })();
+  }, [selectedDate]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch(`${API_BASE}/api/agenda/blocks`);
+        const data: ScheduleBlock[] = await res.json();
+        setBlocks(data);
+      } catch {}
+    })();
+  }, []);
+
+  const visibleDentists = dentists.filter(d => selectedDentists.has(d.id));
+
+  function toggleDentist(id: string) {
+    setSelectedDentists(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
+  }
+
+  async function deleteBlock(id: string) {
+    try {
+      await apiFetch(`${API_BASE}/api/agenda/blocks/${id}`, { method: 'DELETE' });
+      setBlocks(prev => prev.filter(b => b.id !== id));
+    } catch {}
+  }
+
+  async function submitBlock(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/agenda/blocks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dentistId: bDentistId,
+          startDate: bStartDate,
+          endDate: bEndDate,
+          startTime: bAllDay ? '00:00' : bStartTime,
+          endTime: bAllDay ? '23:59' : bEndTime,
+          reason: bReason,
+          type: bType,
+        }),
+      });
+      const data: ScheduleBlock = await res.json();
+      setBlocks(prev => [...prev, data]);
+      setBReason(''); setBDentistId('');
+    } catch {}
+    setSaving(false);
+  }
+
+  // Current time position
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowPct = minutesToPct(nowMinutes);
+  const showNowLine = nowMinutes >= 540 && nowMinutes <= 1140;
+
+  // Appointments for selected date and selected dentists
+  const visibleAppts = appointments.filter(a => selectedDentists.has(a.dentistId));
+
+  // Blocks active on selected date
+  const activeBlocks = blocks.filter(b =>
+    selectedDentists.has(b.dentistId) &&
+    b.startDate <= selectedDate && b.endDate >= selectedDate
+  );
+
+  function handleSlotClick(e: React.MouseEvent, dentistName: string, hour: string) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setTooltip({ x: e.clientX, y: e.clientY, dentist: dentistName, hour });
+    setTimeout(() => setTooltip(null), 2000);
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', position: 'relative' }}>
+      {/* Toolbar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+        background: '#fff', borderBottom: '1px solid #e0e0e0', flexWrap: 'wrap',
+        position: 'sticky', top: 0, zIndex: 50,
+      }}>
+        {/* Date nav */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={() => {
+            const d = addDays(weekStart, -7);
+            setWeekStart(d);
+            setSelectedDate(fmtDate(d));
+          }} style={{ padding: '6px 10px', cursor: 'pointer', border: '1px solid #ccc', borderRadius: 4 }}>←</button>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>
+            Semana del {fmtDisplay(weekStart)}
+          </span>
+          <button onClick={() => {
+            const d = addDays(weekStart, 7);
+            setWeekStart(d);
+            setSelectedDate(fmtDate(d));
+          }} style={{ padding: '6px 10px', cursor: 'pointer', border: '1px solid #ccc', borderRadius: 4 }}>→</button>
+        </div>
+
+        {/* Day selector within week */}
+        <div style={{ display: 'flex', gap: 4 }}>
+          {['L','M','X','J','V'].map((label, i) => {
+            const day = addDays(weekStart, i);
+            const dayStr = fmtDate(day);
+            return (
+              <button key={i} onClick={() => setSelectedDate(dayStr)} style={{
+                padding: '4px 8px', fontSize: 12, cursor: 'pointer',
+                border: '1px solid #ccc', borderRadius: 4,
+                background: dayStr === selectedDate ? '#1976d2' : '#f5f5f5',
+                color: dayStr === selectedDate ? '#fff' : '#333',
+              }}>{label} {day.getDate()}</button>
+            );
+          })}
+        </div>
+
+        {/* Dentist filter */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button onClick={() => setSelectedDentists(new Set(dentists.map(d => d.id)))}
+            style={{ padding: '4px 10px', fontSize: 12, cursor: 'pointer', border: '1px solid #1976d2',
+              borderRadius: 4, background: '#e3f2fd', color: '#1976d2' }}>Todos</button>
+          {dentists.map(d => (
+            <button key={d.id} onClick={() => toggleDentist(d.id)} style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontSize: 12,
+              cursor: 'pointer', border: `1px solid ${d.color}`, borderRadius: 4,
+              background: selectedDentists.has(d.id) ? d.color : '#f5f5f5',
+              color: selectedDentists.has(d.id) ? '#fff' : d.color,
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%',
+                background: selectedDentists.has(d.id) ? '#fff' : d.color, display: 'inline-block' }} />
+              {d.name}
+            </button>
+          ))}
+        </div>
+
+        {/* Bloqueos toggle */}
+        <button onClick={() => setShowBlockPanel(p => !p)} style={{
+          marginLeft: 'auto', padding: '6px 14px', fontSize: 13, cursor: 'pointer',
+          background: showBlockPanel ? '#e53935' : '#fff', color: showBlockPanel ? '#fff' : '#e53935',
+          border: '1px solid #e53935', borderRadius: 4, fontWeight: 600,
+        }}>Bloqueos {showBlockPanel ? '✕' : '⊕'}</button>
+      </div>
+
+      <div style={{ display: 'flex' }}>
+        {/* Calendar grid */}
+        <div style={{ flex: 1, overflowX: 'auto' }}>
+          {visibleDentists.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>
+              Selecciona al menos un dentista para ver el calendario.
+            </div>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: `60px repeat(${visibleDentists.length}, 1fr)`,
+              minWidth: 400 + visibleDentists.length * 180,
+            }}>
+              {/* Header row */}
+              <div style={{ background: '#f5f5f5', borderBottom: '2px solid #e0e0e0', padding: '8px 4px' }} />
+              {visibleDentists.map(d => (
+                <div key={d.id} style={{
+                  background: '#f5f5f5', borderBottom: '2px solid #e0e0e0',
+                  borderLeft: '1px solid #e0e0e0', padding: '8px 12px',
+                  display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13,
+                }}>
+                  <span style={{ width: 12, height: 12, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                  <span>{d.name}</span>
+                  <span style={{ fontSize: 10, color: '#888', fontWeight: 400 }}>{d.specialty}</span>
+                </div>
+              ))}
+
+              {/* Time column + dentist columns */}
+              {HOURS.map(hour => (
+                <>
+                  {/* Time label */}
+                  <div key={`t-${hour}`} style={{
+                    borderBottom: '1px solid #f0f0f0', padding: '0 6px',
+                    fontSize: 11, color: '#999', display: 'flex', alignItems: 'flex-start',
+                    paddingTop: 4, height: 60,
+                  }}>{hour}</div>
+                  {/* Dentist slots */}
+                  {visibleDentists.map(d => {
+                    const slotStart = timeToMinutes(hour);
+                    const slotEnd = slotStart + 60;
+                    const appts = visibleAppts.filter(a =>
+                      a.dentistId === d.id &&
+                      timeToMinutes(a.startTime) < slotEnd &&
+                      timeToMinutes(a.endTime) > slotStart
+                    );
+                    const isBlocked = activeBlocks.some(b =>
+                      b.dentistId === d.id &&
+                      timeToMinutes(b.startTime) < slotEnd &&
+                      timeToMinutes(b.endTime) > slotStart
+                    );
+                    const blockInfo = activeBlocks.find(b =>
+                      b.dentistId === d.id &&
+                      timeToMinutes(b.startTime) < slotEnd &&
+                      timeToMinutes(b.endTime) > slotStart
+                    );
+                    return (
+                      <div key={`${d.id}-${hour}`}
+                        style={{
+                          borderBottom: '1px solid #f0f0f0', borderLeft: '1px solid #e0e0e0',
+                          height: 60, position: 'relative', cursor: appts.length === 0 && !isBlocked ? 'pointer' : 'default',
+                          background: isBlocked
+                            ? 'repeating-linear-gradient(45deg,#f0f0f0,#f0f0f0 4px,#fafafa 4px,#fafafa 10px)'
+                            : '#fff',
+                        }}
+                        onClick={e => { if (appts.length === 0 && !isBlocked) handleSlotClick(e, d.name, hour); }}
+                      >
+                        {isBlocked && blockInfo && (
+                          <div style={{
+                            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+                            justifyContent: 'center', fontSize: 10, color: '#9e9e9e', padding: 2,
+                            pointerEvents: 'none',
+                          }}>
+                            {blockInfo.reason} ({blockInfo.type})
+                          </div>
+                        )}
+                        {appts.map(a => {
+                          const top = ((timeToMinutes(a.startTime) - slotStart) / 60) * 100;
+                          const height = ((timeToMinutes(a.endTime) - timeToMinutes(a.startTime)) / 60) * 100;
+                          return (
+                            <div key={a.id} style={{
+                              position: 'absolute', left: 2, right: 2,
+                              top: `${top}%`, height: `${Math.max(height, 20)}%`,
+                              background: `${d.color}22`, borderLeft: `3px solid ${d.color}`,
+                              borderRadius: 3, padding: '2px 4px', overflow: 'hidden',
+                              fontSize: 11, boxShadow: '0 1px 3px rgba(0,0,0,.1)',
+                            }}>
+                              <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {a.patientName}
+                              </div>
+                              <div style={{ color: '#555', fontSize: 10 }}>{a.procedure}</div>
+                              <div style={{ color: '#777', fontSize: 10 }}>{a.startTime}–{a.endTime}</div>
+                              <span style={{
+                                fontSize: 9, padding: '1px 4px', borderRadius: 8,
+                                background: statusBg(a.status), color: statusColor(a.status),
+                                fontWeight: 600,
+                              }}>{a.status}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </>
+              ))}
+
+              {/* Current time indicator row */}
+              {showNowLine && (
+                <>
+                  <div style={{ gridColumn: `1 / span ${visibleDentists.length + 1}`, position: 'relative', height: 0 }}>
+                    <div style={{
+                      position: 'absolute', left: 60, right: 0, top: 0,
+                      borderTop: '2px solid #e53935', zIndex: 10, pointerEvents: 'none',
+                    }}>
+                      <span style={{
+                        position: 'absolute', left: 0, top: -8,
+                        background: '#e53935', color: '#fff', fontSize: 9,
+                        padding: '1px 4px', borderRadius: 3,
+                      }}>{now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Bloqueos side panel */}
+        {showBlockPanel && (
+          <div style={{
+            width: 360, borderLeft: '1px solid #e0e0e0', background: '#fafafa',
+            padding: 16, overflowY: 'auto', maxHeight: 'calc(100vh - 120px)',
+            position: 'sticky', top: 60,
+          }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>Bloqueos de agenda</h3>
+
+            {/* Existing blocks list */}
+            {blocks.length === 0 && (
+              <p style={{ color: '#999', fontSize: 13 }}>Sin bloqueos registrados.</p>
+            )}
+            {blocks.map(b => (
+              <div key={b.id} style={{
+                background: '#fff', border: '1px solid #e0e0e0', borderRadius: 6,
+                padding: '10px 12px', marginBottom: 10, fontSize: 13,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ fontWeight: 600 }}>{b.dentistName}</div>
+                  <span style={{
+                    fontSize: 10, padding: '2px 6px', borderRadius: 10,
+                    background: typeBg(b.type), color: typeColor(b.type), fontWeight: 600,
+                  }}>{b.type}</span>
+                </div>
+                <div style={{ color: '#555', marginTop: 2 }}>
+                  {b.startDate} → {b.endDate}
+                </div>
+                <div style={{ color: '#777', fontSize: 12 }}>{b.startTime} – {b.endTime}</div>
+                <div style={{ color: '#333', marginTop: 4 }}>{b.reason}</div>
+                <button onClick={() => deleteBlock(b.id)} style={{
+                  marginTop: 8, padding: '3px 10px', fontSize: 12, cursor: 'pointer',
+                  background: '#ffebee', color: '#c62828', border: '1px solid #ef9a9a', borderRadius: 4,
+                }}>Eliminar</button>
+              </div>
+            ))}
+
+            <hr style={{ margin: '16px 0', borderColor: '#e0e0e0' }} />
+
+            {/* New block form */}
+            <h4 style={{ margin: '0 0 10px', fontSize: 14 }}>Nuevo bloqueo</h4>
+            <form onSubmit={submitBlock} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 12, color: '#555' }}>Dentista</label>
+                <select value={bDentistId} onChange={e => setBDentistId(e.target.value)} required
+                  style={{ display: 'block', width: '100%', padding: '6px 8px', borderRadius: 4,
+                    border: '1px solid #ccc', marginTop: 2, fontSize: 13 }}>
+                  <option value="">— Seleccionar —</option>
+                  {dentists.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: '#555' }}>Fecha inicio</label>
+                  <input type="date" value={bStartDate} onChange={e => setBStartDate(e.target.value)} required
+                    style={{ display: 'block', width: '100%', padding: '6px 8px', borderRadius: 4,
+                      border: '1px solid #ccc', marginTop: 2, fontSize: 13 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#555' }}>Fecha fin</label>
+                  <input type="date" value={bEndDate} onChange={e => setBEndDate(e.target.value)} required
+                    style={{ display: 'block', width: '100%', padding: '6px 8px', borderRadius: 4,
+                      border: '1px solid #ccc', marginTop: 2, fontSize: 13 }} />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="checkbox" checked={bAllDay} onChange={e => setBAllDay(e.target.checked)} />
+                  Todo el día
+                </label>
+              </div>
+              {!bAllDay && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#555' }}>Hora inicio</label>
+                    <input type="time" value={bStartTime} onChange={e => setBStartTime(e.target.value)}
+                      style={{ display: 'block', width: '100%', padding: '6px 8px', borderRadius: 4,
+                        border: '1px solid #ccc', marginTop: 2, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#555' }}>Hora fin</label>
+                    <input type="time" value={bEndTime} onChange={e => setBEndTime(e.target.value)}
+                      style={{ display: 'block', width: '100%', padding: '6px 8px', borderRadius: 4,
+                        border: '1px solid #ccc', marginTop: 2, fontSize: 13 }} />
+                  </div>
+                </div>
+              )}
+              <div>
+                <label style={{ fontSize: 12, color: '#555' }}>Motivo</label>
+                <input type="text" value={bReason} onChange={e => setBReason(e.target.value)} required
+                  placeholder="Ej: Vacaciones agosto"
+                  style={{ display: 'block', width: '100%', padding: '6px 8px', borderRadius: 4,
+                    border: '1px solid #ccc', marginTop: 2, fontSize: 13 }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#555' }}>Tipo</label>
+                <select value={bType} onChange={e => setBType(e.target.value)}
+                  style={{ display: 'block', width: '100%', padding: '6px 8px', borderRadius: 4,
+                    border: '1px solid #ccc', marginTop: 2, fontSize: 13 }}>
+                  <option value="VACATION">VACATION</option>
+                  <option value="TRAINING">TRAINING</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
+                  <option value="PERSONAL">PERSONAL</option>
+                  <option value="HOLIDAY">HOLIDAY</option>
+                </select>
+              </div>
+              <button type="submit" disabled={saving} style={{
+                padding: '8px 16px', background: '#1976d2', color: '#fff',
+                border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 14,
+              }}>{saving ? 'Guardando...' : 'Crear bloqueo'}</button>
+            </form>
+          </div>
+        )}
+      </div>
+
+      {/* Empty slot tooltip */}
+      {tooltip && (
+        <div style={{
+          position: 'fixed', top: tooltip.y - 36, left: tooltip.x + 8,
+          background: '#333', color: '#fff', padding: '4px 10px', borderRadius: 4,
+          fontSize: 12, pointerEvents: 'none', zIndex: 9999,
+        }}>
+          Nueva cita aquí — {tooltip.dentist} {tooltip.hour}
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    # ------------------------------------------------------------------ #
+    #  Round 35 - Cash Register / Cuadre de Caja Diario                   #
+    # ------------------------------------------------------------------ #
+    def generate_cash_register_page_tsx(self) -> str:
+        """
+        Generates CashRegisterPage.tsx — daily cash reconciliation (Cuadre de Caja Diario).
+        Round 35.
+        """
+        return r"""import { useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface DentistSummary { dentistName: string; total: number; count: number; }
+interface InsuranceSummary { insuranceName: string; total: number; count: number; }
+interface DailySummary {
+  date: string; totalCash: number; totalCard: number; totalTransfer: number;
+  totalInsurance: number; grandTotal: number; transactionCount: number;
+  byDentist: DentistSummary[]; byInsurance: InsuranceSummary[];
+  closed: boolean; closedAt: string | null; closedBy: string | null;
+}
+interface Transaction {
+  id: string; patientName: string; dentistName: string; method: string;
+  amount: number; time: string; procedure: string;
+}
+interface ClosedSession {
+  date: string; total: number; status: string; closedBy: string; closedAt: string;
+}
+
+const fmtEur = (n: number) => n.toFixed(2) + ' \u20ac';
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+export default function CashRegisterPage() {
+  const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [summary, setSummary] = useState<DailySummary | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [history, setHistory] = useState<ClosedSession[]>([]);
+  const [activeTab, setActiveTab] = useState<'resumen' | 'transacciones' | 'dentista' | 'historial'>('resumen');
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [physicalCash, setPhysicalCash] = useState('');
+  const [closedByVal, setClosedByVal] = useState('Admin');
+  const [notes, setNotes] = useState('');
+  const [closeResult, setCloseResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const loadSummary = useCallback(async (date: string) => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/cash-register/summary?date=${date}`);
+      const data = await res.json();
+      setSummary(data);
+    } catch { setMsg('Error cargando resumen'); } finally { setLoading(false); }
+  }, []);
+
+  const loadTransactions = useCallback(async (date: string) => {
+    try {
+      const res = await apiFetch(`${API_BASE}/api/cash-register/transactions?date=${date}`);
+      const data = await res.json();
+      setTransactions(data);
+    } catch { setTransactions([]); }
+  }, []);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await apiFetch(`${API_BASE}/api/cash-register/history?months=3`);
+      const data = await res.json();
+      setHistory(data);
+    } catch { setHistory([]); }
+  }, []);
+
+  useEffect(() => { loadSummary(selectedDate); loadTransactions(selectedDate); }, [selectedDate, loadSummary, loadTransactions]);
+  useEffect(() => { if (activeTab === 'historial') loadHistory(); }, [activeTab, loadHistory]);
+
+  const handleClose = async () => {
+    try {
+      const res = await apiFetch(`${API_BASE}/api/cash-register/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: selectedDate,
+          closedBy: closedByVal,
+          notes,
+          physicalCashCount: physicalCash ? parseFloat(physicalCash) : 0,
+        }),
+      });
+      const data = await res.json();
+      setCloseResult(data);
+      loadSummary(selectedDate);
+    } catch { setMsg('Error cerrando caja'); }
+  };
+
+  const diffColor = (d: number) => d >= 0 ? '#27ae60' : '#e74c3c';
+
+  const methodBadge = (method: string) => {
+    const map: Record<string, { bg: string; color: string; label: string }> = {
+      CASH:     { bg: '#e8f5e9', color: '#2e7d32', label: 'Efectivo' },
+      CARD:     { bg: '#e3f2fd', color: '#1565c0', label: 'Tarjeta' },
+      TRANSFER: { bg: '#f3e5f5', color: '#6a1b9a', label: 'Transferencia' },
+      INSURANCE:{ bg: '#fff3e0', color: '#e65100', label: 'Seguro' },
+    };
+    const s = map[method] || { bg: '#f5f5f5', color: '#333', label: method };
+    return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: s.bg, color: s.color }}>{s.label}</span>;
+  };
+
+  const statusBadge = (status: string) => {
+    const map: Record<string, { bg: string; color: string }> = {
+      BALANCED: { bg: '#e8f5e9', color: '#2e7d32' },
+      SURPLUS:  { bg: '#e3f2fd', color: '#1565c0' },
+      DEFICIT:  { bg: '#fce4ec', color: '#b71c1c' },
+    };
+    const s = map[status] || { bg: '#f5f5f5', color: '#333' };
+    return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: s.bg, color: s.color }}>{status}</span>;
+  };
+
+  const kpiCards = summary ? [
+    { icon: '\uD83D\uDCB5', label: 'Efectivo',      value: summary.totalCash,      cnt: transactions.filter(t => t.method === 'CASH').length },
+    { icon: '\uD83D\uDCB3', label: 'Tarjeta',       value: summary.totalCard,      cnt: transactions.filter(t => t.method === 'CARD').length },
+    { icon: '\uD83C\uDFE6', label: 'Transferencia', value: summary.totalTransfer,  cnt: transactions.filter(t => t.method === 'TRANSFER').length },
+    { icon: '\uD83C\uDFE5', label: 'Seguro',        value: summary.totalInsurance, cnt: transactions.filter(t => t.method === 'INSURANCE').length },
+  ] : [];
+
+  const tabSty = (tab: string): React.CSSProperties => ({
+    padding: '10px 20px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
+    fontWeight: activeTab === tab ? 700 : 400,
+    background: activeTab === tab ? '#1976d2' : '#e0e0e0',
+    color: activeTab === tab ? '#fff' : '#333', marginRight: 4,
+  });
+
+  const physNum = physicalCash ? parseFloat(physicalCash) : 0;
+  const sysTotal = summary?.grandTotal ?? 0;
+  const diffVal = physNum - sysTotal;
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <h2 style={{ margin: 0, color: '#1976d2' }}>Cuadre de Caja Diario</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label style={{ fontWeight: 600 }}>Fecha:</label>
+          <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
+            style={{ padding: '6px 12px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14 }} />
+        </div>
+      </div>
+
+      {msg && <div style={{ background: '#fce4ec', color: '#b71c1c', padding: 12, borderRadius: 6, marginBottom: 16 }}>{msg}</div>}
+      {loading && <div style={{ color: '#1976d2', marginBottom: 16 }}>Cargando...</div>}
+
+      {summary && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+          {kpiCards.map(c => (
+            <div key={c.label} style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: 20, textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+              <div style={{ fontSize: 28 }}>{c.icon}</div>
+              <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>{c.label}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#1976d2', marginTop: 6 }}>{fmtEur(c.value)}</div>
+              <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>{c.cnt} transacciones</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginBottom: 0 }}>
+        {(['resumen', 'transacciones', 'dentista', 'historial'] as const).map(tab => (
+          <button key={tab} style={tabSty(tab)} onClick={() => setActiveTab(tab)}>
+            {tab === 'resumen' ? 'Resumen' : tab === 'transacciones' ? 'Transacciones' : tab === 'dentista' ? 'Por dentista' : 'Historial'}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderTop: 'none', borderRadius: '0 6px 6px 6px', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+
+        {activeTab === 'resumen' && summary && (
+          <div>
+            <h3 style={{ marginTop: 0 }}>Resumen del día {summary.date}</h3>
+            <div style={{ marginBottom: 24 }}>
+              <h4 style={{ marginBottom: 12 }}>Recaudación por método</h4>
+              {[
+                { label: 'Efectivo', value: summary.totalCash, color: '#27ae60' },
+                { label: 'Tarjeta', value: summary.totalCard, color: '#2196f3' },
+                { label: 'Transferencia', value: summary.totalTransfer, color: '#9c27b0' },
+                { label: 'Seguro', value: summary.totalInsurance, color: '#ff9800' },
+              ].map(bar => (
+                <div key={bar.label} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, gap: 12 }}>
+                  <div style={{ width: 110, fontSize: 13, color: '#555' }}>{bar.label}</div>
+                  <div style={{ flex: 1, background: '#f0f0f0', borderRadius: 4, height: 22 }}>
+                    <div style={{ width: summary.grandTotal > 0 ? `${(bar.value / summary.grandTotal) * 100}%` : '0%', background: bar.color, borderRadius: 4, height: '100%', minWidth: bar.value > 0 ? 4 : 0 }} />
+                  </div>
+                  <div style={{ width: 90, textAlign: 'right', fontWeight: 600, fontSize: 13 }}>{fmtEur(bar.value)}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginBottom: 24 }}>
+              <h4 style={{ marginBottom: 8 }}>Por dentista</h4>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead><tr style={{ background: '#f5f5f5' }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Dentista</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '2px solid #e0e0e0' }}>Total</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '2px solid #e0e0e0' }}>Citas</th>
+                </tr></thead>
+                <tbody>
+                  {summary.byDentist.map(d => (
+                    <tr key={d.dentistName} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '8px 12px' }}>{d.dentistName}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{fmtEur(d.total)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#666' }}>{d.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {summary.byInsurance.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <h4 style={{ marginBottom: 8 }}>Por aseguradora</h4>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                  <thead><tr style={{ background: '#f5f5f5' }}>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Aseguradora</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '2px solid #e0e0e0' }}>Total</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '2px solid #e0e0e0' }}>Pacientes</th>
+                  </tr></thead>
+                  <tbody>
+                    {summary.byInsurance.map(ins => (
+                      <tr key={ins.insuranceName} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                        <td style={{ padding: '8px 12px' }}>{ins.insuranceName}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{fmtEur(ins.total)}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: '#666' }}>{ins.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderTop: '2px solid #e0e0e0' }}>
+              <div>
+                <span style={{ fontSize: 16, color: '#555' }}>Total del día: </span>
+                <span style={{ fontSize: 22, fontWeight: 700, color: '#1976d2' }}>{fmtEur(summary.grandTotal)}</span>
+                {summary.closed && (
+                  <span style={{ marginLeft: 16, fontSize: 13, color: '#27ae60' }}>
+                    Cerrada por {summary.closedBy} a las {summary.closedAt?.slice(11, 16)}
+                  </span>
+                )}
+              </div>
+              {!summary.closed && (
+                <button onClick={() => { setShowCloseModal(true); setCloseResult(null); }}
+                  style={{ background: '#e53935', color: '#fff', border: 'none', borderRadius: 6, padding: '10px 24px', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>
+                  Cerrar caja
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'transacciones' && (
+          <div>
+            <h3 style={{ marginTop: 0 }}>Transacciones del {selectedDate}</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead><tr style={{ background: '#f5f5f5' }}>
+                {['Hora', 'Paciente', 'Dentista', 'Tratamiento', 'Método', 'Importe'].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Importe' ? 'right' : 'left', borderBottom: '2px solid #e0e0e0' }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {transactions.map(tx => (
+                  <tr key={tx.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                    <td style={{ padding: '8px 12px', color: '#666' }}>{tx.time}</td>
+                    <td style={{ padding: '8px 12px', fontWeight: 500 }}>{tx.patientName}</td>
+                    <td style={{ padding: '8px 12px', color: '#555' }}>{tx.dentistName}</td>
+                    <td style={{ padding: '8px 12px', color: '#555' }}>{tx.procedure}</td>
+                    <td style={{ padding: '8px 12px' }}>{methodBadge(tx.method)}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{fmtEur(tx.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeTab === 'dentista' && summary && (
+          <div>
+            <h3 style={{ marginTop: 0 }}>Recaudación por dentista — {selectedDate}</h3>
+            <div style={{ display: 'grid', gap: 16 }}>
+              {summary.byDentist.map(d => {
+                const pct = summary.grandTotal > 0 ? (d.total / summary.grandTotal) * 100 : 0;
+                return (
+                  <div key={d.dentistName} style={{ background: '#f9f9f9', border: '1px solid #e0e0e0', borderRadius: 8, padding: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 16 }}>{d.dentistName}</div>
+                        <div style={{ color: '#666', fontSize: 13, marginTop: 2 }}>{d.count} transacciones</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: '#1976d2' }}>{fmtEur(d.total)}</div>
+                        <div style={{ fontSize: 12, color: '#999' }}>{pct.toFixed(1)}% del total</div>
+                      </div>
+                    </div>
+                    <div style={{ background: '#e0e0e0', borderRadius: 4, height: 12 }}>
+                      <div style={{ width: `${pct}%`, background: '#1976d2', borderRadius: 4, height: '100%', minWidth: pct > 0 ? 4 : 0 }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'historial' && (
+          <div>
+            <h3 style={{ marginTop: 0 }}>Historial de cierres</h3>
+            {history.length === 0 ? (
+              <p style={{ color: '#999' }}>No hay cierres registrados.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead><tr style={{ background: '#f5f5f5' }}>
+                  {['Fecha', 'Total', 'Estado', 'Cerrado por', 'Hora cierre'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Total' ? 'right' : 'left', borderBottom: '2px solid #e0e0e0' }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {history.map(s => (
+                    <tr key={s.date} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '8px 12px', fontWeight: 500 }}>{s.date}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{fmtEur(s.total)}</td>
+                      <td style={{ padding: '8px 12px' }}>{statusBadge(s.status)}</td>
+                      <td style={{ padding: '8px 12px', color: '#555' }}>{s.closedBy}</td>
+                      <td style={{ padding: '8px 12px', color: '#666' }}>{s.closedAt?.slice(11, 16)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showCloseModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 32, width: 440, boxShadow: '0 8px 32px rgba(0,0,0,.2)' }}>
+            <h3 style={{ margin: '0 0 20px', color: '#1976d2' }}>Cerrar caja — {selectedDate}</h3>
+            {!closeResult ? (
+              <>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Recuento físico de caja</label>
+                  <input type="number" step="0.01" value={physicalCash} onChange={e => setPhysicalCash(e.target.value)}
+                    placeholder="0.00"
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box' }} />
+                </div>
+                {physicalCash && (
+                  <div style={{ background: '#f9f9f9', border: '1px solid #e0e0e0', borderRadius: 6, padding: 12, marginBottom: 14, fontSize: 13 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Total sistema:</span><strong>{fmtEur(sysTotal)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Recuento físico:</span><strong>{fmtEur(physNum)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #ddd', paddingTop: 6, fontWeight: 700 }}>
+                      <span>Diferencia:</span>
+                      <span style={{ color: diffColor(diffVal) }}>{diffVal >= 0 ? '+' : ''}{fmtEur(diffVal)}</span>
+                    </div>
+                  </div>
+                )}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Cerrado por</label>
+                  <input type="text" value={closedByVal} onChange={e => setClosedByVal(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box' }} />
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Notas</label>
+                  <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+                    placeholder="Observaciones del cierre..."
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setShowCloseModal(false)} style={{ padding: '8px 20px', border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>Cancelar</button>
+                  <button onClick={handleClose} style={{ padding: '8px 20px', background: '#e53935', color: '#fff', border: 'none', borderRadius: 4, fontWeight: 600, cursor: 'pointer' }}>Confirmar cierre</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                  <div style={{ fontSize: 48, marginBottom: 8 }}>&#x2713;</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#27ae60' }}>Caja cerrada correctamente</div>
+                </div>
+                <div style={{ background: '#f9f9f9', border: '1px solid #e0e0e0', borderRadius: 6, padding: 16, fontSize: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginBottom: 20 }}>
+                  <span style={{ color: '#666' }}>Total sistema:</span><strong>{fmtEur(closeResult.systemTotal)}</strong>
+                  <span style={{ color: '#666' }}>Recuento físico:</span><strong>{fmtEur(closeResult.physicalCount)}</strong>
+                  <span style={{ color: '#666' }}>Diferencia:</span>
+                  <strong style={{ color: diffColor(closeResult.difference) }}>{closeResult.difference >= 0 ? '+' : ''}{fmtEur(closeResult.difference)}</strong>
+                  <span style={{ color: '#666' }}>Estado:</span>{statusBadge(closeResult.status)}
+                  <span style={{ color: '#666' }}>Hora cierre:</span><strong>{closeResult.closedAt?.slice(11, 16)}</strong>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <button onClick={() => setShowCloseModal(false)} style={{ padding: '8px 20px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, fontWeight: 600, cursor: 'pointer' }}>Aceptar</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    # ------------------------------------------------------------------ #
+    #  Round 36 - Recurring Appointments Page                              #
+    # ------------------------------------------------------------------ #
+    def generate_recurring_appointments_page_tsx(self) -> str:
+        """
+        Generates RecurringAppointmentsPage.tsx — manage recurring appointment series.
+        Round 36.
+        """
+        return r"""import { useState } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface RecurringSeries {
+  id: string;
+  patientId: string;
+  patientName: string;
+  dentistId: string;
+  dentistName: string;
+  procedure: string;
+  startDate: string;
+  endDate: string;
+  frequency: string;
+  dayOfWeek: string;
+  time: string;
+  durationMinutes: number;
+  notes: string;
+  status: string;
+  totalOccurrences: number;
+  completedOccurrences: number;
+}
+
+interface RecurringOccurrence {
+  id: string;
+  seriesId: string;
+  date: string;
+  time: string;
+  status: string;
+  notes: string;
+}
+
+const FREQ_LABELS: Record<string, string> = {
+  WEEKLY: 'Semanal', BIWEEKLY: 'Quincenal', MONTHLY: 'Mensual',
+  QUARTERLY: 'Trimestral', SEMIANNUAL: 'Semestral', ANNUAL: 'Anual',
+};
+
+const DAY_LABELS: Record<string, string> = {
+  MONDAY: 'Lunes', TUESDAY: 'Martes', WEDNESDAY: 'Miércoles',
+  THURSDAY: 'Jueves', FRIDAY: 'Viernes', SATURDAY: 'Sábado', SUNDAY: 'Domingo',
+};
+
+function statusBadge(status: string) {
+  const map: Record<string, { bg: string; color: string }> = {
+    ACTIVE:    { bg: '#e8f5e9', color: '#2e7d32' },
+    COMPLETED: { bg: '#f5f5f5', color: '#616161' },
+    CANCELLED: { bg: '#ffebee', color: '#c62828' },
+    SCHEDULED: { bg: '#e3f2fd', color: '#1565c0' },
+    SKIPPED:   { bg: '#fff8e1', color: '#f57f17' },
+  };
+  const s = map[status] || { bg: '#f5f5f5', color: '#333' };
+  return (
+    <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: s.bg, color: s.color }}>
+      {status}
+    </span>
+  );
+}
+
+function calcPreview(startDate: string, endDate: string, frequency: string): number {
+  if (!startDate || !endDate || !frequency) return 0;
+  try {
+    let current = new Date(startDate);
+    const end = new Date(endDate);
+    let count = 0;
+    while (current <= end && count < 500) {
+      count++;
+      if (frequency === 'WEEKLY')          current.setDate(current.getDate() + 7);
+      else if (frequency === 'BIWEEKLY')   current.setDate(current.getDate() + 14);
+      else if (frequency === 'MONTHLY')    current.setMonth(current.getMonth() + 1);
+      else if (frequency === 'QUARTERLY')  current.setMonth(current.getMonth() + 3);
+      else if (frequency === 'SEMIANNUAL') current.setMonth(current.getMonth() + 6);
+      else if (frequency === 'ANNUAL')     current.setFullYear(current.getFullYear() + 1);
+      else break;
+    }
+    return count;
+  } catch { return 0; }
+}
+
+export default function RecurringAppointmentsPage() {
+  const [patientSearch, setPatientSearch] = useState('');
+  const [series, setSeries] = useState<RecurringSeries[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const [expanded, setExpanded] = useState<Record<string, RecurringOccurrence[] | undefined>>({});
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    patientId: '', dentistId: '', procedure: '', startDate: '', endDate: '',
+    frequency: 'MONTHLY', dayOfWeek: 'MONDAY', time: '10:00', durationMinutes: 60, notes: '',
+  });
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSearch = async () => {
+    setLoadError('');
+    setSeries([]);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/recurring/patient/${patientSearch.trim()}`);
+      if (!res.ok) { setLoadError('No se pudieron cargar las series.'); return; }
+      const data = await res.json();
+      setSeries(data);
+    } catch { setLoadError('Error de conexión.'); }
+  };
+
+  const handleExpand = async (s: RecurringSeries) => {
+    if (expanded[s.id] !== undefined) {
+      setExpanded(prev => { const n = { ...prev }; delete n[s.id]; return n; });
+      return;
+    }
+    try {
+      const res = await apiFetch(`${API_BASE}/api/recurring/${s.id}/occurrences`);
+      if (!res.ok) return;
+      const data: RecurringOccurrence[] = await res.json();
+      setExpanded(prev => ({ ...prev, [s.id]: data }));
+    } catch { setExpanded(prev => ({ ...prev, [s.id]: [] })); }
+  };
+
+  const handleCancel = async (seriesId: string) => {
+    if (!window.confirm('¿Cancelar toda la serie?')) return;
+    try {
+      const res = await apiFetch(`${API_BASE}/api/recurring/${seriesId}`, { method: 'DELETE' });
+      if (!res.ok) return;
+      setSeries(prev => prev.map(s => s.id === seriesId ? { ...s, status: 'CANCELLED' } : s));
+    } catch {}
+  };
+
+  const handleSkip = async (seriesId: string, date: string) => {
+    try {
+      const res = await apiFetch(`${API_BASE}/api/recurring/${seriesId}/skip/${date}`, { method: 'POST' });
+      if (!res.ok) return;
+      const updated: RecurringOccurrence = await res.json();
+      setExpanded(prev => ({
+        ...prev,
+        [seriesId]: (prev[seriesId] || []).map(o => o.date === date ? updated : o),
+      }));
+    } catch {}
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+    if (!form.patientId || !form.dentistId || !form.procedure || !form.startDate || !form.endDate) {
+      setFormError('Completa todos los campos obligatorios.'); return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/recurring`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, durationMinutes: Number(form.durationMinutes) }),
+      });
+      if (!res.ok) { setFormError('Error al crear la serie.'); return; }
+      const created: RecurringSeries = await res.json();
+      setSeries(prev => [created, ...prev]);
+      setShowForm(false);
+      setForm({ patientId: '', dentistId: '', procedure: '', startDate: '', endDate: '',
+        frequency: 'MONTHLY', dayOfWeek: 'MONDAY', time: '10:00', durationMinutes: 60, notes: '' });
+    } catch { setFormError('Error de conexión.'); }
+    finally { setSubmitting(false); }
+  };
+
+  const preview = calcPreview(form.startDate, form.endDate, form.frequency);
+
+  const inputStyle: React.CSSProperties = {
+    padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, width: '100%', boxSizing: 'border-box',
+  };
+  const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 4, display: 'block' };
+
+  return (
+    <div style={{ maxWidth: 1000, margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <h2 style={{ color: '#1976d2', margin: 0 }}>Citas Recurrentes</h2>
+        <button onClick={() => setShowForm(f => !f)}
+          style={{ padding: '8px 20px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+          {showForm ? 'Cancelar' : '+ Nueva serie recurrente'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{ background: '#f0f7ff', borderRadius: 10, padding: 24, marginBottom: 28, border: '1px solid #90caf9' }}>
+          <h3 style={{ color: '#1565c0', marginTop: 0, marginBottom: 20 }}>Nueva serie recurrente</h3>
+          <form onSubmit={handleSubmit}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div>
+                <label style={labelStyle}>ID Paciente *</label>
+                <input style={inputStyle} value={form.patientId}
+                  onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))}
+                  placeholder="UUID del paciente" />
+              </div>
+              <div>
+                <label style={labelStyle}>ID Dentista *</label>
+                <input style={inputStyle} value={form.dentistId}
+                  onChange={e => setForm(f => ({ ...f, dentistId: e.target.value }))}
+                  placeholder="UUID del dentista" />
+              </div>
+              <div>
+                <label style={labelStyle}>Procedimiento *</label>
+                <input style={inputStyle} value={form.procedure}
+                  onChange={e => setForm(f => ({ ...f, procedure: e.target.value }))}
+                  placeholder="Ej: Ortodoncia" />
+              </div>
+              <div>
+                <label style={labelStyle}>Frecuencia</label>
+                <select style={inputStyle} value={form.frequency}
+                  onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}>
+                  <option value="WEEKLY">Semanal</option>
+                  <option value="BIWEEKLY">Quincenal</option>
+                  <option value="MONTHLY">Mensual</option>
+                  <option value="QUARTERLY">Trimestral</option>
+                  <option value="SEMIANNUAL">Semestral</option>
+                  <option value="ANNUAL">Anual</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Fecha inicio *</label>
+                <input style={inputStyle} type="date" value={form.startDate}
+                  onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+              </div>
+              <div>
+                <label style={labelStyle}>Fecha fin *</label>
+                <input style={inputStyle} type="date" value={form.endDate}
+                  onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+              </div>
+              <div>
+                <label style={labelStyle}>Día de la semana</label>
+                <select style={inputStyle} value={form.dayOfWeek}
+                  onChange={e => setForm(f => ({ ...f, dayOfWeek: e.target.value }))}>
+                  {(['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY'] as const).map(d => (
+                    <option key={d} value={d}>{DAY_LABELS[d]}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Hora</label>
+                <input style={inputStyle} type="time" value={form.time}
+                  onChange={e => setForm(f => ({ ...f, time: e.target.value }))} />
+              </div>
+              <div>
+                <label style={labelStyle}>Duración (minutos)</label>
+                <input style={inputStyle} type="number" min={15} max={240} value={form.durationMinutes}
+                  onChange={e => setForm(f => ({ ...f, durationMinutes: Number(e.target.value) }))} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Notas</label>
+              <textarea style={{ ...inputStyle, height: 72, resize: 'vertical' }} value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Observaciones opcionales" />
+            </div>
+            {form.startDate && form.endDate && (
+              <div style={{ background: '#e3f2fd', borderRadius: 6, padding: '10px 16px', marginBottom: 16, fontSize: 14, color: '#1565c0' }}>
+                <strong>Vista previa:</strong> Se generarán <strong>{preview}</strong> cita{preview !== 1 ? 's' : ''} ({FREQ_LABELS[form.frequency]})
+              </div>
+            )}
+            {formError && <p style={{ color: '#c62828', margin: '8px 0' }}>{formError}</p>}
+            <button type="submit" disabled={submitting}
+              style={{ padding: '10px 28px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 15 }}>
+              {submitting ? 'Guardando...' : 'Crear serie'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      <div style={{ background: '#fff', borderRadius: 10, padding: 20, marginBottom: 24, border: '1px solid #e3eafc', boxShadow: '0 2px 8px rgba(25,118,210,.07)' }}>
+        <h3 style={{ color: '#1565c0', marginTop: 0, marginBottom: 12 }}>Buscar series de un paciente</h3>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input value={patientSearch} onChange={e => setPatientSearch(e.target.value)}
+            placeholder="UUID del paciente"
+            style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, width: 300 }}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()} />
+          <button onClick={handleSearch}
+            style={{ padding: '8px 20px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+            Buscar
+          </button>
+        </div>
+        {loadError && <p style={{ color: '#c62828', marginTop: 8 }}>{loadError}</p>}
+      </div>
+
+      {series.length === 0 && !loadError && (
+        <p style={{ color: '#888', textAlign: 'center', marginTop: 40 }}>
+          Busca por ID de paciente para ver sus series recurrentes.
+        </p>
+      )}
+
+      {series.map(s => {
+        const progress = s.totalOccurrences > 0 ? Math.round((s.completedOccurrences / s.totalOccurrences) * 100) : 0;
+        const occs = expanded[s.id];
+        return (
+          <div key={s.id} style={{ background: '#fff', borderRadius: 10, padding: 20, marginBottom: 18, border: '1px solid #e3eafc', boxShadow: '0 2px 8px rgba(25,118,210,.07)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 700, fontSize: 16, color: '#1a237e' }}>{s.procedure}</span>
+                <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: '#e3f2fd', color: '#1565c0' }}>
+                  {FREQ_LABELS[s.frequency] || s.frequency}
+                </span>
+                {statusBadge(s.status)}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => handleExpand(s)}
+                  style={{ padding: '6px 14px', background: '#e3f2fd', color: '#1565c0', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+                  {occs !== undefined ? 'Ocultar citas' : 'Ver citas'}
+                </button>
+                {s.status === 'ACTIVE' && (
+                  <button onClick={() => handleCancel(s.id)}
+                    style={{ padding: '6px 14px', background: '#ffebee', color: '#c62828', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+                    Cancelar serie
+                  </button>
+                )}
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px 16px', fontSize: 14, color: '#555', marginBottom: 12 }}>
+              <span><strong>Dentista:</strong> {s.dentistName}</span>
+              <span><strong>Inicio:</strong> {s.startDate}</span>
+              <span><strong>Fin:</strong> {s.endDate}</span>
+              <span><strong>Hora:</strong> {s.time}</span>
+              <span><strong>Día:</strong> {DAY_LABELS[s.dayOfWeek] || s.dayOfWeek}</span>
+              <span><strong>Duración:</strong> {s.durationMinutes} min</span>
+            </div>
+            {s.notes && <p style={{ fontSize: 13, color: '#777', margin: '0 0 12px' }}>{s.notes}</p>}
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 4 }}>
+                <span>Progreso</span>
+                <span>{s.completedOccurrences} / {s.totalOccurrences} completadas ({progress}%)</span>
+              </div>
+              <div style={{ background: '#e3eafc', borderRadius: 8, height: 8, overflow: 'hidden' }}>
+                <div style={{ width: `${progress}%`, height: '100%', background: '#1976d2', borderRadius: 8, transition: 'width .4s' }} />
+              </div>
+            </div>
+            {occs !== undefined && (
+              <div style={{ marginTop: 16 }}>
+                <h4 style={{ color: '#1565c0', margin: '0 0 10px' }}>Citas generadas</h4>
+                {occs.length === 0 ? (
+                  <p style={{ color: '#888', fontSize: 13 }}>No hay citas registradas.</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#e3f2fd' }}>
+                        {['Fecha', 'Hora', 'Estado', 'Acción'].map(h => (
+                          <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: '#1565c0', fontWeight: 600 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {occs.map((o, i) => (
+                        <tr key={o.id} style={{ borderBottom: '1px solid #f0f0f0', background: i % 2 === 0 ? '#fff' : '#fafcff' }}>
+                          <td style={{ padding: '7px 12px' }}>{o.date}</td>
+                          <td style={{ padding: '7px 12px' }}>{o.time}</td>
+                          <td style={{ padding: '7px 12px' }}>{statusBadge(o.status)}</td>
+                          <td style={{ padding: '7px 12px' }}>
+                            {o.status === 'SCHEDULED' && (
+                              <button onClick={() => handleSkip(s.id, o.date)}
+                                style={{ padding: '4px 12px', background: '#fff8e1', color: '#f57f17', border: '1px solid #ffe082', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                                Saltar
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+"""
+
+    # ---- Round 37: GDPR Page ----
+    def generate_gdpr_page_tsx(self) -> str:
+        return r"""import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+const CONSENT_TYPES = ['DATA_PROCESSING','MARKETING','MEDICAL_HISTORY','PHOTOS','THIRD_PARTY'];
+const CONSENT_ACTIONS = ['GRANTED','WITHDRAWN','UPDATED'];
+
+function syntaxColor(json: string) {
+  return json.replace(
+    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+    (m) => {
+      let color = '#1976d2';
+      if (/^"/.test(m)) color = /:$/.test(m) ? '#b71c1c' : '#2e7d32';
+      else if (/true|false/.test(m)) color = '#6a1b9a';
+      else if (/null/.test(m)) color = '#ef6c00';
+      return `<span style="color:${color}">${m}</span>`;
+    }
+  );
+}
+
+export default function GdprPage() {
+  const [tab, setTab] = useState(0);
+  const [exportId, setExportId] = useState('');
+  const [exportData, setExportData] = useState<any>(null);
+  const [exportErr, setExportErr] = useState('');
+  const [anonId, setAnonId] = useState('');
+  const [anonConfirm, setAnonConfirm] = useState(false);
+  const [anonResult, setAnonResult] = useState<any>(null);
+  const [anonErr, setAnonErr] = useState('');
+  const [consentLogs, setConsentLogs] = useState<any[]>([]);
+  const [filterType, setFilterType] = useState('');
+  const [filterAction, setFilterAction] = useState('');
+  const [logForm, setLogForm] = useState({ patientId: '', consentType: 'DATA_PROCESSING', action: 'GRANTED', details: '' });
+  const [logMsg, setLogMsg] = useState('');
+  const [retention, setRetention] = useState<any>(null);
+
+  const tabs = ['Exportar datos', 'Derecho al olvido', 'Registro de consentimientos', 'Retención de datos'];
+
+  useEffect(() => {
+    if (tab === 2) loadConsentLog();
+    if (tab === 3) loadRetention();
+  }, [tab, filterType, filterAction]);
+
+  async function loadConsentLog() {
+    const params = new URLSearchParams();
+    if (filterType)   params.set('consentType', filterType);
+    if (filterAction) params.set('action', filterAction);
+    const r = await apiFetch(`${API_BASE}/api/gdpr/consent-log?${params}`);
+    if (r.ok) setConsentLogs(await r.json());
+  }
+
+  async function loadRetention() {
+    const r = await apiFetch(`${API_BASE}/api/gdpr/retention-report`);
+    if (r.ok) setRetention(await r.json());
+  }
+
+  async function handleExport() {
+    setExportErr(''); setExportData(null);
+    if (!exportId.trim()) { setExportErr('Introduce un ID de paciente'); return; }
+    const r = await apiFetch(`${API_BASE}/api/gdpr/patient/${exportId.trim()}/export`);
+    if (r.ok) setExportData(await r.json());
+    else setExportErr('Error exportando datos');
+  }
+
+  function handleDownload() {
+    if (!exportData) return;
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `paciente-${exportId}-gdpr-export.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function handleAnonymize() {
+    setAnonErr(''); setAnonResult(null);
+    if (!anonId.trim()) { setAnonErr('Introduce un ID de paciente'); return; }
+    if (!anonConfirm) { setAnonErr('Confirma la solicitud antes de continuar'); return; }
+    const r = await apiFetch(`${API_BASE}/api/gdpr/patient/${anonId.trim()}/anonymize`, { method: 'POST' });
+    if (r.ok) setAnonResult(await r.json());
+    else setAnonErr('Error anonimizando datos');
+  }
+
+  async function handleLogConsent() {
+    setLogMsg('');
+    if (!logForm.patientId.trim()) { setLogMsg('ID de paciente requerido'); return; }
+    const r = await apiFetch(`${API_BASE}/api/gdpr/consent-log`, {
+      method: 'POST',
+      body: JSON.stringify(logForm),
+    });
+    if (r.ok) { setLogMsg('Consentimiento registrado'); loadConsentLog(); }
+    else setLogMsg('Error registrando consentimiento');
+  }
+
+  function actionBadge(action: string) {
+    const bg = action === 'GRANTED' ? '#2e7d32' : action === 'WITHDRAWN' ? '#c62828' : '#e65100';
+    return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: bg, color: '#fff' }}>{action}</span>;
+  }
+
+  function recBadge(rec: string) {
+    const bg = rec === 'KEEP' ? '#2e7d32' : rec === 'REVIEW' ? '#e65100' : '#c62828';
+    return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: bg, color: '#fff' }}>{rec}</span>;
+  }
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <h2 style={{ color: '#1565c0', marginBottom: 20 }}>RGPD / Cumplimiento</h2>
+      <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #e3f2fd', marginBottom: 24 }}>
+        {tabs.map((t, i) => (
+          <button key={i} onClick={() => setTab(i)}
+            style={{ padding: '10px 20px', border: 'none',
+              borderBottom: tab === i ? '3px solid #1565c0' : '3px solid transparent',
+              background: 'none', cursor: 'pointer', fontWeight: tab === i ? 700 : 400,
+              color: tab === i ? '#1565c0' : '#555', fontSize: 14 }}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === 0 && (
+        <div>
+          <h3 style={{ color: '#1565c0' }}>Exportar datos del paciente</h3>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <input value={exportId} onChange={e => setExportId(e.target.value)} placeholder="ID del paciente (UUID)"
+              style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, width: 320 }} />
+            <button onClick={handleExport}
+              style={{ padding: '8px 20px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+              Exportar
+            </button>
+            {exportData && (
+              <button onClick={handleDownload}
+                style={{ padding: '8px 20px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+                Descargar JSON
+              </button>
+            )}
+          </div>
+          {exportErr && <p style={{ color: '#c62828' }}>{exportErr}</p>}
+          {exportData && (
+            <pre style={{ background: '#1e1e1e', color: '#d4d4d4', padding: 20, borderRadius: 8, fontSize: 13, overflow: 'auto', maxHeight: 500 }}
+              dangerouslySetInnerHTML={{ __html: syntaxColor(JSON.stringify(exportData, null, 2)) }} />
+          )}
+        </div>
+      )}
+
+      {tab === 1 && (
+        <div>
+          <h3 style={{ color: '#c62828' }}>Derecho al olvido — Anonimizar datos</h3>
+          <div style={{ background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: 8, padding: 16, marginBottom: 20 }}>
+            <strong>Advertencia:</strong> Esta acción es irreversible. Los datos personales serán anonimizados de forma permanente conforme al artículo 17 del RGPD.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 500 }}>
+            <input value={anonId} onChange={e => setAnonId(e.target.value)} placeholder="ID del paciente (UUID)"
+              style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid #ef9a9a', fontSize: 14 }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, cursor: 'pointer' }}>
+              <input type="checkbox" checked={anonConfirm} onChange={e => setAnonConfirm(e.target.checked)} />
+              Confirmo que el paciente ha solicitado el borrado de sus datos
+            </label>
+            <button onClick={handleAnonymize}
+              style={{ padding: '10px 24px', background: '#c62828', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>
+              Anonimizar datos
+            </button>
+          </div>
+          {anonErr && <p style={{ color: '#c62828', marginTop: 12 }}>{anonErr}</p>}
+          {anonResult && (
+            <div style={{ marginTop: 20, background: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: 8, padding: 16 }}>
+              <strong style={{ color: '#2e7d32' }}>Anonimización completada</strong>
+              <p style={{ margin: '8px 0 4px', fontSize: 14 }}>Paciente: {anonResult.patientId}</p>
+              <p style={{ margin: '0 0 8px', fontSize: 14 }}>Fecha: {anonResult.anonymizedAt}</p>
+              <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 600 }}>Campos anonimizados:</p>
+              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+                {anonResult.anonymizedFields?.map((f: string) => <li key={f}>{f}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 2 && (
+        <div>
+          <h3 style={{ color: '#1565c0' }}>Registro de consentimientos</h3>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+            <select value={filterType} onChange={e => setFilterType(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }}>
+              <option value="">Todos los tipos</option>
+              {CONSENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={filterAction} onChange={e => setFilterAction(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }}>
+              <option value="">Todas las acciones</option>
+              {CONSENT_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+          <div style={{ overflowX: 'auto', marginBottom: 32 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ background: '#e3f2fd' }}>
+                  {['Fecha','Paciente','Tipo','Acción','IP','Detalles'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#1565c0', borderBottom: '2px solid #90caf9' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {consentLogs.map((c, i) => (
+                  <tr key={c.id} style={{ background: i % 2 === 0 ? '#fff' : '#f5f9ff' }}>
+                    <td style={{ padding: '8px 12px' }}>{c.date}</td>
+                    <td style={{ padding: '8px 12px' }}>{c.patientName}</td>
+                    <td style={{ padding: '8px 12px' }}><span style={{ background: '#e3f2fd', color: '#1565c0', padding: '2px 8px', borderRadius: 10, fontSize: 12 }}>{c.consentType}</span></td>
+                    <td style={{ padding: '8px 12px' }}>{actionBadge(c.action)}</td>
+                    <td style={{ padding: '8px 12px', color: '#666' }}>{c.ipAddress}</td>
+                    <td style={{ padding: '8px 12px', color: '#555' }}>{c.details}</td>
+                  </tr>
+                ))}
+                {consentLogs.length === 0 && <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: '#999' }}>Sin registros</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <h4 style={{ color: '#1565c0', marginBottom: 12 }}>Registrar consentimiento</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 600 }}>
+            <input value={logForm.patientId} onChange={e => setLogForm(f => ({ ...f, patientId: e.target.value }))}
+              placeholder="ID del paciente (UUID)"
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }} />
+            <select value={logForm.consentType} onChange={e => setLogForm(f => ({ ...f, consentType: e.target.value }))}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }}>
+              {CONSENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={logForm.action} onChange={e => setLogForm(f => ({ ...f, action: e.target.value }))}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }}>
+              {CONSENT_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <input value={logForm.details} onChange={e => setLogForm(f => ({ ...f, details: e.target.value }))}
+              placeholder="Detalles"
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }} />
+          </div>
+          <button onClick={handleLogConsent}
+            style={{ marginTop: 12, padding: '8px 20px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+            Registrar consentimiento
+          </button>
+          {logMsg && <p style={{ marginTop: 8, color: logMsg.startsWith('Error') ? '#c62828' : '#2e7d32', fontSize: 14 }}>{logMsg}</p>}
+        </div>
+      )}
+
+      {tab === 3 && (
+        <div>
+          <h3 style={{ color: '#1565c0' }}>Retención de datos</h3>
+          {retention && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+                {[
+                  { label: 'Total pacientes',   value: retention.totalPatients,      bg: '#e3f2fd', c: '#1565c0' },
+                  { label: 'Activos',           value: retention.activePatients,     bg: '#e8f5e9', c: '#2e7d32' },
+                  { label: 'Inactivos >5 años', value: retention.inactiveOver5Years, bg: '#fff3e0', c: '#e65100' },
+                  { label: 'Anonimizados',      value: retention.anonymizedCount,    bg: '#fce4ec', c: '#c62828' },
+                ].map(card => (
+                  <div key={card.label} style={{ background: card.bg, borderRadius: 10, padding: 20, textAlign: 'center' }}>
+                    <div style={{ fontSize: 32, fontWeight: 700, color: card.c }}>{card.value}</div>
+                    <div style={{ fontSize: 13, color: '#555', marginTop: 4 }}>{card.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Generado: {retention.generatedAt}</div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                  <thead>
+                    <tr style={{ background: '#e3f2fd' }}>
+                      {['Paciente','Última actividad','Años inactivo','Recomendación'].map(h => (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#1565c0', borderBottom: '2px solid #90caf9' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {retention.items?.map((item: any, i: number) => (
+                      <tr key={item.patientId} style={{ background: i % 2 === 0 ? '#fff' : '#f5f9ff' }}>
+                        <td style={{ padding: '8px 12px' }}>{item.name}</td>
+                        <td style={{ padding: '8px 12px' }}>{item.lastActivity}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>{item.yearsInactive}</td>
+                        <td style={{ padding: '8px 12px' }}>{recBadge(item.recommendation)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    # ---- Round 37: Waitlist Page ----
+    def generate_waitlist_page_tsx(self) -> str:
+        return r"""import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+const DAYS = ['L','M','X','J','V','S'];
+const PRIORITIES = ['HIGH','NORMAL','LOW'];
+
+function priorityBadge(p: string) {
+  const bg = p === 'HIGH' ? '#c62828' : p === 'NORMAL' ? '#1565c0' : '#757575';
+  return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: bg, color: '#fff' }}>{p}</span>;
+}
+
+function statusBadge(s: string) {
+  const cfgMap: Record<string, [string, string]> = {
+    WAITING:   ['#e65100', '#fff'],
+    NOTIFIED:  ['#f9a825', '#000'],
+    BOOKED:    ['#2e7d32', '#fff'],
+    CANCELLED: ['#757575', '#fff'],
+  };
+  const [bg, color] = cfgMap[s] ?? ['#eee', '#333'];
+  return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: bg, color }}>{s}</span>;
+}
+
+const emptyForm = {
+  patientId: '', patientPhone: '', preferredDentistId: '', procedure: '',
+  preferredDays: [] as string[], preferredTime: 'ANY', priority: 'NORMAL', notes: ''
+};
+
+export default function WaitlistPage() {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [slots, setSlots] = useState<any[]>([]);
+  const [slotDate, setSlotDate] = useState(new Date().toISOString().slice(0, 10));
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ ...emptyForm });
+  const [confirmBook, setConfirmBook] = useState<any>(null);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => { loadWaitlist(); }, []);
+
+  async function loadWaitlist() {
+    const r = await apiFetch(`${API_BASE}/api/waitlist`);
+    if (r.ok) setEntries(await r.json());
+  }
+
+  async function searchSlots() {
+    const r = await apiFetch(`${API_BASE}/api/waitlist/available-slots?date=${slotDate}`);
+    if (r.ok) setSlots(await r.json());
+  }
+
+  async function notify(id: string) {
+    const r = await apiFetch(`${API_BASE}/api/waitlist/${id}/notify`, { method: 'POST' });
+    if (r.ok) loadWaitlist();
+  }
+
+  async function book(id: string) {
+    const r = await apiFetch(`${API_BASE}/api/waitlist/${id}/book`, { method: 'POST' });
+    if (r.ok) { setConfirmBook(null); loadWaitlist(); }
+  }
+
+  async function remove(id: string) {
+    const r = await apiFetch(`${API_BASE}/api/waitlist/${id}`, { method: 'DELETE' });
+    if (r.ok) loadWaitlist();
+  }
+
+  async function addEntry() {
+    setMsg('');
+    if (!form.patientId.trim()) { setMsg('ID de paciente requerido'); return; }
+    const body = {
+      ...form,
+      preferredDays: form.preferredDays.join(','),
+      preferredDentistId: form.preferredDentistId || undefined,
+    };
+    const r = await apiFetch(`${API_BASE}/api/waitlist`, { method: 'POST', body: JSON.stringify(body) });
+    if (r.ok) { setShowForm(false); setForm({ ...emptyForm }); loadWaitlist(); }
+    else setMsg('Error añadiendo a la lista');
+  }
+
+  function toggleDay(d: string) {
+    setForm(f => ({
+      ...f,
+      preferredDays: f.preferredDays.includes(d)
+        ? f.preferredDays.filter(x => x !== d)
+        : [...f.preferredDays, d],
+    }));
+  }
+
+  return (
+    <div style={{ maxWidth: 1200, margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <h2 style={{ color: '#1565c0', marginBottom: 20 }}>Lista de espera</h2>
+
+      <div style={{ background: '#f5f9ff', border: '1px solid #90caf9', borderRadius: 10, padding: 20, marginBottom: 28 }}>
+        <h3 style={{ color: '#1565c0', marginTop: 0, marginBottom: 14 }}>Huecos disponibles hoy</h3>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14 }}>
+          <input type="date" value={slotDate} onChange={e => setSlotDate(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }} />
+          <button onClick={searchSlots}
+            style={{ padding: '8px 18px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+            Buscar huecos
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          {slots.map((s, i) => (
+            <div key={i}
+              onClick={() => setMsg(`Hueco: ${s.dentistName} a las ${s.time} - ${s.operatory}`)}
+              style={{ background: '#fff', border: '2px solid #1565c0', borderRadius: 8, padding: '14px 20px', cursor: 'pointer', minWidth: 180 }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#e3f2fd')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
+              <div style={{ fontWeight: 700, color: '#1565c0', fontSize: 18 }}>{s.time}</div>
+              <div style={{ fontSize: 14, color: '#333', marginTop: 4 }}>{s.dentistName}</div>
+              <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{s.operatory}</div>
+            </div>
+          ))}
+          {slots.length === 0 && <span style={{ color: '#999', fontSize: 14 }}>Busca huecos disponibles para la fecha seleccionada</span>}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, color: '#1565c0' }}>Lista de espera ({entries.length})</h3>
+        <button onClick={() => setShowForm(true)}
+          style={{ padding: '9px 20px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+          + Añadir a lista de espera
+        </button>
+      </div>
+      {msg && <p style={{ color: msg.startsWith('Error') ? '#c62828' : '#1565c0', fontSize: 14 }}>{msg}</p>}
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#e3f2fd' }}>
+              {['#','Paciente','Teléfono','Dentista preferido','Tratamiento','Días','Turno','Prioridad','Estado','Alta','Acciones'].map(h => (
+                <th key={h} style={{ padding: '10px 10px', textAlign: 'left', fontWeight: 600, color: '#1565c0', borderBottom: '2px solid #90caf9', whiteSpace: 'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e, i) => (
+              <tr key={e.id} style={{ background: i % 2 === 0 ? '#fff' : '#f5f9ff', verticalAlign: 'top' }}>
+                <td style={{ padding: '8px 10px', fontWeight: 700, color: '#1565c0' }}>{i + 1}</td>
+                <td style={{ padding: '8px 10px', fontWeight: 600 }}>{e.patientName}</td>
+                <td style={{ padding: '8px 10px', color: '#555' }}>{e.patientPhone}</td>
+                <td style={{ padding: '8px 10px' }}>{e.preferredDentistName}</td>
+                <td style={{ padding: '8px 10px' }}>{e.procedure}</td>
+                <td style={{ padding: '8px 10px', color: '#555' }}>{e.preferredDays}</td>
+                <td style={{ padding: '8px 10px', color: '#555' }}>{e.preferredTime}</td>
+                <td style={{ padding: '8px 10px' }}>{priorityBadge(e.priority)}</td>
+                <td style={{ padding: '8px 10px' }}>{statusBadge(e.status)}</td>
+                <td style={{ padding: '8px 10px', color: '#888', fontSize: 12 }}>{e.addedAt?.slice(0, 10)}</td>
+                <td style={{ padding: '8px 10px' }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {e.status === 'WAITING' && (
+                      <button onClick={() => notify(e.id)}
+                        style={{ padding: '4px 10px', background: '#f9a825', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                        Notificar
+                      </button>
+                    )}
+                    {(e.status === 'WAITING' || e.status === 'NOTIFIED') && (
+                      <button onClick={() => setConfirmBook(e)}
+                        style={{ padding: '4px 10px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                        Reservar
+                      </button>
+                    )}
+                    <button onClick={() => remove(e.id)}
+                      style={{ padding: '4px 10px', background: '#c62828', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                      Eliminar
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {entries.length === 0 && (
+              <tr><td colSpan={11} style={{ padding: 24, textAlign: 'center', color: '#999' }}>Lista de espera vacía</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {confirmBook && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 32, width: 400 }}>
+            <h3 style={{ margin: '0 0 16px', color: '#1565c0' }}>Confirmar reserva</h3>
+            <p style={{ margin: '0 0 20px', fontSize: 15 }}>
+              ¿Reservar la cita para <strong>{confirmBook.patientName}</strong> ({confirmBook.procedure})?
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmBook(null)}
+                style={{ padding: '8px 18px', background: '#eee', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button onClick={() => book(confirmBook.id)}
+                style={{ padding: '8px 18px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
+                Confirmar reserva
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showForm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 32, width: 520, maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ margin: '0 0 20px', color: '#1565c0' }}>Añadir a lista de espera</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>ID Paciente *</label>
+                <input value={form.patientId} onChange={e => setForm(f => ({ ...f, patientId: e.target.value }))}
+                  placeholder="UUID del paciente"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Teléfono</label>
+                <input value={form.patientPhone} onChange={e => setForm(f => ({ ...f, patientPhone: e.target.value }))}
+                  placeholder="+34 600 000 000"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Prioridad</label>
+                <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }}>
+                  {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tratamiento</label>
+                <input value={form.procedure} onChange={e => setForm(f => ({ ...f, procedure: e.target.value }))}
+                  placeholder="Ej: Revisión, Endodoncia..."
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Días preferidos</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {DAYS.map(d => (
+                    <label key={d} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 14 }}>
+                      <input type="checkbox" checked={form.preferredDays.includes(d)} onChange={() => toggleDay(d)} />
+                      {d}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Turno preferido</label>
+                <div style={{ display: 'flex', gap: 16 }}>
+                  {([['MORNING','Mañana'],['AFTERNOON','Tarde'],['ANY','Cualquiera']] as [string,string][]).map(([v, l]) => (
+                    <label key={v} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14 }}>
+                      <input type="radio" name="wlTime" value={v} checked={form.preferredTime === v} onChange={() => setForm(f => ({ ...f, preferredTime: v }))} />
+                      {l}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {msg && <p style={{ color: '#c62828', fontSize: 13, marginTop: 10 }}>{msg}</p>}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button onClick={() => { setShowForm(false); setMsg(''); }}
+                style={{ padding: '9px 20px', background: '#eee', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+                Cancelar
+              </button>
+              <button onClick={addEntry}
+                style={{ padding: '9px 20px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+                Añadir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+"""

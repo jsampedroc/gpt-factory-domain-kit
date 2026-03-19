@@ -1302,6 +1302,36 @@ public class SecurityConfig {{
         except Exception as e:
             f.log(f"⚠️ Locations/Booking generation error: {e}")
 
+        # ---- Advanced Agenda: dentist view + blocks (Round 34) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/AgendaController.java"] = \
+                tg.generate_agenda_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Agenda generation error: {e}")
+
+        # ---- Recurring Appointments (Round 36) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/RecurringAppointmentController.java"] = \
+                tg.generate_recurring_appointments_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Recurring Appointments generation error: {e}")
+
+        # ---- Cash Register / Daily Close (Round 35) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/CashRegisterController.java"] = \
+                tg.generate_cash_register_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ Cash Register generation error: {e}")
+
+        # ---- GDPR + Waitlist (Round 37) ----
+        try:
+            files[f"backend/src/main/java/{pkg_path}/shared/GdprController.java"] = \
+                tg.generate_gdpr_controller(pkg)
+            files[f"backend/src/main/java/{pkg_path}/shared/WaitlistController.java"] = \
+                tg.generate_waitlist_controller(pkg)
+        except Exception as e:
+            f.log(f"⚠️ GDPR/Waitlist generation error: {e}")
+
         # ---- Stock Management (Round 28) ----
         try:
             files[f"backend/src/main/java/{pkg_path}/shared/StockController.java"] = \
@@ -1467,6 +1497,15 @@ public class SecurityConfig {{
             # Round 33: Locations + Online Booking
             "frontend/src/pages/LocationsPage.tsx": gen.generate_locations_page_tsx(),
             "frontend/src/pages/OnlineBookingPage.tsx": gen.generate_online_booking_page_tsx(),
+            # Round 34: Advanced Calendar
+            "frontend/src/pages/AdvancedCalendarPage.tsx": gen.generate_advanced_calendar_page_tsx(),
+            # Round 36: Recurring Appointments
+            "frontend/src/pages/RecurringAppointmentsPage.tsx": gen.generate_recurring_appointments_page_tsx(),
+            # Round 35: Cash Register
+            "frontend/src/pages/CashRegisterPage.tsx": gen.generate_cash_register_page_tsx(),
+            # Round 37: GDPR + Waitlist
+            "frontend/src/pages/GdprPage.tsx": gen.generate_gdpr_page_tsx(),
+            "frontend/src/pages/WaitlistPage.tsx": gen.generate_waitlist_page_tsx(),
         }
         for rel, content in auth_files.items():
             try:

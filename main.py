@@ -1169,6 +1169,8 @@ public class SecurityConfig {{
         messages_es = tg.generate_messages_properties("es")
         messages_en = tg.generate_messages_properties("en")
         message_source_config_java = tg.generate_message_source_config(config_pkg)
+        file_storage_service_java = tg.generate_file_storage_service(pkg)
+        document_controller_java = tg.generate_document_controller(pkg)
 
         # ---- Write all files ----
         pkg_path = pkg.replace(".", "/")
@@ -1194,6 +1196,8 @@ public class SecurityConfig {{
             f"backend/src/main/java/{pkg_path}/config/MessageSourceConfig.java": message_source_config_java,
             "backend/src/main/resources/messages.properties": messages_es,
             "backend/src/main/resources/messages_en.properties": messages_en,
+            f"backend/src/main/java/{pkg_path}/shared/FileStorageService.java": file_storage_service_java,
+            f"backend/src/main/java/{pkg_path}/shared/DocumentController.java": document_controller_java,
         }
 
         # ---- Dashboard files ----
@@ -1335,6 +1339,7 @@ public class SecurityConfig {{
             "frontend/src/components/Notifications/NotificationBell.tsx": gen.generate_notification_bell(),
             "frontend/src/context/I18nContext.tsx": gen.generate_i18n_context_tsx(entities),
             "frontend/src/components/LanguageSwitcher.tsx": gen.generate_language_switcher(),
+            "frontend/src/components/FileUpload.tsx": gen.generate_file_upload_tsx(),
         }
         for rel, content in auth_files.items():
             try:

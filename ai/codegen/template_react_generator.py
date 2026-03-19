@@ -815,6 +815,139 @@ export function useI18n() {{
 }}
 """
 
+    def generate_file_upload_tsx(self, api_base_var: str = "API_BASE") -> str:
+        """
+        Generates FileUpload.tsx — drag & drop file uploader with document list.
+        Accepts entityType and entityId props and connects to the DocumentController.
+        """
+        return f"""import {{ useEffect, useRef, useState }} from 'react';
+import {{ {api_base_var} }} from '../config/api';
+import {{ apiFetch }} from '../api/apiFetch';
+
+interface DocumentMeta {{
+  id: string;
+  originalName: string;
+  storedName: string;
+  contentType: string;
+  fileSize: number;
+  uploadedBy: string;
+  uploadedAt: string;
+}}
+
+interface Props {{
+  entityType: string;
+  entityId: string;
+}}
+
+export default function FileUpload({{ entityType, entityId }}: Props) {{
+  const [docs, setDocs] = useState<DocumentMeta[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const fetchDocs = async () => {{
+    try {{
+      const res = await apiFetch(`${{{{API_BASE}}}}/api/documents/${{{{entityType}}}}/${{{{entityId}}}}`);
+      if (res.ok) setDocs(await res.json());
+    }} catch {{}}
+  }};
+
+  useEffect(() => {{ fetchDocs(); }}, [entityType, entityId]);
+
+  const uploadFile = async (file: File) => {{
+    setUploading(true);
+    try {{
+      const form = new FormData();
+      form.append('file', file);
+      const res = await apiFetch(
+        `${{{{API_BASE}}}}/api/documents/${{{{entityType}}}}/${{{{entityId}}}}`,
+        {{ method: 'POST', body: form }}
+      );
+      if (res.ok) await fetchDocs();
+    }} finally {{
+      setUploading(false);
+    }}
+  }};
+
+  const handleDrop = (e: React.DragEvent) => {{
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  }};
+
+  const handleDelete = async (storedName: string) => {{
+    if (!confirm('¿Eliminar este archivo?')) return;
+    await apiFetch(
+      `${{{{API_BASE}}}}/api/documents/${{{{entityType}}}}/${{{{entityId}}}}/${{{{storedName}}}}`,
+      {{ method: 'DELETE' }}
+    );
+    await fetchDocs();
+  }};
+
+  const formatSize = (bytes: number) => {{
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }};
+
+  return (
+    <div style={{{{ marginTop: 16 }}}}>
+      <h4 style={{{{ marginBottom: 8, color: '#555' }}}}>Archivos adjuntos</h4>
+
+      {{/* Drop zone */}}
+      <div
+        onDragOver={{e => {{ e.preventDefault(); setDragging(true); }}}}
+        onDragLeave={{() => setDragging(false)}}
+        onDrop={{handleDrop}}
+        onClick={{() => inputRef.current?.click()}}
+        style={{{{
+          border: `2px dashed ${{{{dragging ? '#1976d2' : '#ccc'}}}}`,
+          borderRadius: 8, padding: '20px 16px', textAlign: 'center',
+          cursor: 'pointer', background: dragging ? '#e3f2fd' : '#fafafa',
+          color: '#888', fontSize: 14, transition: 'all .2s',
+        }}}}
+      >
+        {{uploading ? '⏳ Subiendo...' : '📎 Arrastra un archivo aquí o haz clic para seleccionar'}}
+        <input ref={{inputRef}} type="file" style={{{{ display: 'none' }}}}
+          onChange={{e => {{ const f = e.target.files?.[0]; if (f) uploadFile(f); }}}} />
+      </div>
+
+      {{/* Document list */}}
+      {{docs.length > 0 && (
+        <table style={{{{ width: '100%', marginTop: 12, fontSize: 13 }}}}>
+          <thead>
+            <tr style={{{{ background: '#f5f5f5' }}}}>
+              <th style={{{{ padding: '6px 10px', textAlign: 'left' }}}}>Archivo</th>
+              <th style={{{{ padding: '6px 10px', textAlign: 'right' }}}}>Tamaño</th>
+              <th style={{{{ padding: '6px 10px', textAlign: 'left' }}}}>Subido por</th>
+              <th style={{{{ padding: '6px 10px' }}}}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {{docs.map(doc => (
+              <tr key={{doc.id}} style={{{{ borderBottom: '1px solid #eee' }}}}>
+                <td style={{{{ padding: '6px 10px' }}}}>📄 {{doc.originalName}}</td>
+                <td style={{{{ padding: '6px 10px', textAlign: 'right', color: '#888' }}}}>
+                  {{formatSize(doc.fileSize)}}
+                </td>
+                <td style={{{{ padding: '6px 10px', color: '#888' }}}}>{{doc.uploadedBy}}</td>
+                <td style={{{{ padding: '6px 10px' }}}}>
+                  <button
+                    onClick={{() => handleDelete(doc.storedName)}}
+                    style={{{{ background: '#f44336', padding: '2px 8px', fontSize: 12 }}}}
+                  >Eliminar</button>
+                </td>
+              </tr>
+            ))}}
+          </tbody>
+        </table>
+      )}}
+    </div>
+  );
+}}
+"""
+
     def generate_language_switcher(self) -> str:
         """
         Generates LanguageSwitcher.tsx — ES/EN toggle button for the navbar.

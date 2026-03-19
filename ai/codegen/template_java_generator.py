@@ -903,6 +903,193 @@ public class NotificationService {{
 }}
 """
 
+    def generate_file_storage_service(self, base_package: str) -> str:
+        """
+        Generates FileStorageService — stores uploaded files on the local filesystem
+        under uploads/<entityType>/<entityId>/ and returns the stored filename.
+        """
+        return f"""package {base_package}.shared;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.UUID;
+
+/**
+ * Stores uploaded files on the local filesystem.
+ * Files are saved under: <upload-dir>/<entityType>/<entityId>/<uuid>_<originalName>
+ * In production replace with S3 / GCS / Azure Blob Storage.
+ */
+@Service
+public class FileStorageService {{
+
+    private final Path uploadRoot;
+
+    public FileStorageService(@Value("${{app.upload.dir:uploads}}") String uploadDir) {{
+        this.uploadRoot = Paths.get(uploadDir).toAbsolutePath().normalize();
+        try {{
+            Files.createDirectories(this.uploadRoot);
+        }} catch (IOException e) {{
+            throw new UncheckedIOException("Cannot create upload directory", e);
+        }}
+    }}
+
+    /**
+     * Stores a file and returns its stored filename (UUID prefix + original name).
+     */
+    public String store(MultipartFile file, String entityType, String entityId) {{
+        if (file.isEmpty()) {{
+            throw new IllegalArgumentException("Cannot store empty file");
+        }}
+        String originalName = sanitize(file.getOriginalFilename());
+        String storedName = UUID.randomUUID() + "_" + originalName;
+        try {{
+            Path dir = uploadRoot.resolve(entityType).resolve(entityId);
+            Files.createDirectories(dir);
+            file.transferTo(dir.resolve(storedName));
+        }} catch (IOException e) {{
+            throw new UncheckedIOException("Failed to store file " + originalName, e);
+        }}
+        return storedName;
+    }}
+
+    /**
+     * Returns the absolute path for a stored file.
+     */
+    public Path load(String entityType, String entityId, String storedName) {{
+        return uploadRoot.resolve(entityType).resolve(entityId).resolve(storedName).normalize();
+    }}
+
+    /**
+     * Deletes a stored file. Returns true if the file existed and was deleted.
+     */
+    public boolean delete(String entityType, String entityId, String storedName) {{
+        try {{
+            return Files.deleteIfExists(load(entityType, entityId, storedName));
+        }} catch (IOException e) {{
+            return false;
+        }}
+    }}
+
+    private String sanitize(String name) {{
+        if (name == null || name.isBlank()) return "file";
+        return name.replaceAll("[^a-zA-Z0-9._\\\\-]", "_");
+    }}
+}}
+"""
+
+    def generate_document_entity_sql(self) -> str:
+        """
+        Generates a Flyway migration SQL for the shared documents table.
+        This table links uploaded files to any domain entity (polymorphic association).
+        """
+        return (
+            "-- Documents: stores metadata for uploaded files linked to any domain entity\n"
+            "CREATE TABLE IF NOT EXISTS documents (\n"
+            "    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),\n"
+            "    entity_type   VARCHAR(64)  NOT NULL,\n"
+            "    entity_id     UUID         NOT NULL,\n"
+            "    original_name VARCHAR(255) NOT NULL,\n"
+            "    stored_name   VARCHAR(255) NOT NULL,\n"
+            "    content_type  VARCHAR(128),\n"
+            "    file_size     BIGINT,\n"
+            "    uploaded_by   VARCHAR(128),\n"
+            "    uploaded_at   TIMESTAMP    NOT NULL DEFAULT now()\n"
+            ");\n"
+            "CREATE INDEX IF NOT EXISTS idx_documents_entity ON documents(entity_type, entity_id);\n"
+        )
+
+    def generate_document_controller(self, base_package: str) -> str:
+        """
+        Generates DocumentController — REST endpoints to upload/list/delete files
+        for any domain entity. Mounted at /api/documents/{entityType}/{entityId}.
+        """
+        return f"""package {base_package}.shared;
+
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.time.Instant;
+import java.util.*;
+
+/**
+ * Handles file uploads and downloads for any domain entity.
+ * Files are stored on disk by FileStorageService.
+ * Metadata is kept in memory (replace with DB persistence for production).
+ */
+@RestController
+@RequestMapping("/api/documents")
+public class DocumentController {{
+
+    private final FileStorageService storageService;
+    // In-memory store: entityType+entityId -> list of metadata
+    // Replace with a JPA repository backed by the documents table in production.
+    private final Map<String, List<DocumentMeta>> store = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public DocumentController(FileStorageService storageService) {{
+        this.storageService = storageService;
+    }}
+
+    @PostMapping(value = "/{{entityType}}/{{entityId}}",
+                 consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<DocumentMeta> upload(
+            @PathVariable String entityType,
+            @PathVariable String entityId,
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal Jwt jwt) {{
+
+        String uploader = jwt != null ? jwt.getSubject() : "anonymous";
+        String storedName = storageService.store(file, entityType, entityId);
+        DocumentMeta meta = new DocumentMeta(
+                UUID.randomUUID().toString(), entityType, entityId,
+                file.getOriginalFilename(), storedName,
+                file.getContentType(), file.getSize(),
+                uploader, Instant.now());
+        store.computeIfAbsent(entityType + ":" + entityId, k -> new ArrayList<>()).add(meta);
+        return ResponseEntity.ok(meta);
+    }}
+
+    @GetMapping("/{{entityType}}/{{entityId}}")
+    public ResponseEntity<List<DocumentMeta>> list(
+            @PathVariable String entityType,
+            @PathVariable String entityId) {{
+        return ResponseEntity.ok(store.getOrDefault(entityType + ":" + entityId, List.of()));
+    }}
+
+    @DeleteMapping("/{{entityType}}/{{entityId}}/{{storedName}}")
+    public ResponseEntity<Void> delete(
+            @PathVariable String entityType,
+            @PathVariable String entityId,
+            @PathVariable String storedName) {{
+        storageService.delete(entityType, entityId, storedName);
+        List<DocumentMeta> docs = store.get(entityType + ":" + entityId);
+        if (docs != null) docs.removeIf(d -> d.storedName().equals(storedName));
+        return ResponseEntity.noContent().build();
+    }}
+
+    public record DocumentMeta(
+            String id,
+            String entityType,
+            String entityId,
+            String originalName,
+            String storedName,
+            String contentType,
+            long fileSize,
+            String uploadedBy,
+            Instant uploadedAt) {{}}
+}}
+"""
+
     def generate_integration_tests(self, base_package: str, modules: list[dict], project_slug: str) -> dict[str, str]:
         """
         Generates Testcontainers integration tests for each module.

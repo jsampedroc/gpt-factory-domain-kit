@@ -33,6 +33,9 @@ import OperatoryPage from './pages/OperatoryPage';
 import NpsPage from './pages/NpsPage';
 import InsuranceClaimsPage from './pages/InsuranceClaimsPage';
 import StaffPage from './pages/StaffPage';
+import SterilizationPage from './pages/SterilizationPage';
+import PatientMapPage from './pages/PatientMapPage';
+import PreVisitFormPage from './pages/PreVisitFormPage';
 
 interface NavItem { label: string; to: string; }
 interface NavGroup { label: string; items: NavItem[]; }
@@ -44,6 +47,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Pacientes', to: '/patients' },
       { label: 'Dentistas', to: '/dentists' },
       { label: 'Anamnesis', to: '/anamnesis' },
+      { label: 'Formulario pre-visita', to: '/previsit-forms' },
+      { label: 'Mapa de pacientes', to: '/patient-map' },
       { label: 'Fotos clínicas', to: '/clinical-photos' },
       { label: 'Portal paciente', to: '/portal' },
       { label: 'Mensajes', to: '/communications' },
@@ -68,6 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Planes de trat.', to: '/treatment-plans' },
       { label: 'Recetas', to: '/prescriptions' },
       { label: 'Consentimientos', to: '/consents' },
+      { label: 'Esterilización', to: '/sterilization' },
     ],
   },
   {
@@ -211,6 +217,9 @@ export default function App() {
           <Route path="/nps" element={<NpsPage />} />
           <Route path="/insurance-claims" element={<InsuranceClaimsPage />} />
           <Route path="/staff" element={<StaffPage />} />
+          <Route path="/sterilization" element={<SterilizationPage />} />
+          <Route path="/patient-map" element={<PatientMapPage />} />
+          <Route path="/previsit-forms" element={<PreVisitFormPage />} />
         </Routes>
       </main>
     </>

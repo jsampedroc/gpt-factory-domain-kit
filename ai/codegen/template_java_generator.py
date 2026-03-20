@@ -5399,6 +5399,467 @@ public class GdprController {{
 """
 
     # ---- Round 37: Lista de Espera / Waitlist ----
+    def generate_nps_controller(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/nps")
+@Tag(name = "NPS", description = "Post-appointment satisfaction surveys and NPS tracking")
+public class NpsController {{
+
+    private final Map<UUID, NpsSurvey> store = new ConcurrentHashMap<>();
+
+    private static final List<String> CATEGORIES = List.of(
+        "atención", "puntualidad", "instalaciones", "precio", "resultado"
+    );
+
+    public NpsController() {{
+        String[] patients = {{
+            "Ana Pérez", "Luis Gómez", "María Ruiz", "Carlos Díaz", "Elena Sanz",
+            "Pedro Mora", "Laura Vega", "Javier López", "Carmen Torres", "Miguel Ríos",
+            "Isabel Núñez", "Andrés Blanco", "Rosa Jiménez", "Fernando Castro", "Lucía Ortega"
+        }};
+        UUID[] dentistIds = {{
+            UUID.fromString("00000000-0000-0000-0000-000000000001"),
+            UUID.fromString("00000000-0000-0000-0000-000000000002"),
+            UUID.fromString("00000000-0000-0000-0000-000000000003"),
+            UUID.fromString("00000000-0000-0000-0000-000000000004")
+        }};
+        String[] dentistNames = {{"Dra. García", "Dr. Martínez", "Dra. López", "Dr. Fernández"}};
+        String[] statuses = {{"RESPONDED", "RESPONDED", "RESPONDED", "RESPONDED", "RESPONDED",
+                              "RESPONDED", "RESPONDED", "RESPONDED", "RESPONDED", "RESPONDED",
+                              "SENT", "SENT", "SENT", "EXPIRED", "EXPIRED"}};
+        int[] scores = {{9, 10, 8, 6, 9, 10, 7, 5, 9, 10, -1, -1, -1, -1, -1}};
+        String[] comments = {{
+            "Excelente atención, muy profesional.",
+            "El mejor dentista que he tenido. Lo recomiendo totalmente.",
+            "Buen servicio, aunque la espera fue un poco larga.",
+            "No quedé del todo satisfecho con el resultado.",
+            "Muy amables y puntuales. Volveré sin duda.",
+            "Servicio impecable de principio a fin.",
+            "Correcto, nada especial.",
+            "Tuve problemas con la cita y el resultado no fue el esperado.",
+            "Muy profesional y eficiente. Totalmente recomendable.",
+            "Fantástica experiencia. Instalaciones modernas y personal muy atento.",
+            null, null, null, null, null
+        }};
+
+        for (int i = 0; i < patients.length; i++) {{
+            UUID id = UUID.randomUUID();
+            UUID patientId = UUID.randomUUID();
+            UUID appointmentId = UUID.randomUUID();
+            int dIdx = i % dentistIds.length;
+            String token = "NPS-" + id.toString().replace("-", "").substring(0, 12).toUpperCase();
+            String sentAt = LocalDateTime.now().minusDays(patients.length - i)
+                .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            String respondedAt = null;
+            Map<String, Integer> catScores = null;
+            if ("RESPONDED".equals(statuses[i])) {{
+                respondedAt = LocalDateTime.now().minusDays(patients.length - i - 1)
+                    .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                catScores = new LinkedHashMap<>();
+                int base = scores[i] >= 9 ? 4 : scores[i] >= 7 ? 3 : 2;
+                for (String cat : CATEGORIES) {{
+                    catScores.put(cat, Math.min(5, Math.max(1, base + new Random(cat.hashCode() + i).nextInt(2))));
+                }}
+            }}
+            store.put(id, new NpsSurvey(
+                id, patientId, patients[i], appointmentId,
+                dentistIds[dIdx], dentistNames[dIdx],
+                token, sentAt, respondedAt, statuses[i],
+                "RESPONDED".equals(statuses[i]) ? scores[i] : null,
+                comments[i], catScores
+            ));
+        }}
+    }}
+
+    @GetMapping("/surveys")
+    @PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+    public ResponseEntity<List<NpsSurvey>> getSurveys() {{
+        List<NpsSurvey> sorted = store.values().stream()
+            .sorted(Comparator.comparing(NpsSurvey::sentAt).reversed())
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(sorted);
+    }}
+
+    @PostMapping("/surveys")
+    @PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+    public ResponseEntity<NpsSurvey> createSurvey(@RequestBody SurveyRequest req) {{
+        UUID id = UUID.randomUUID();
+        String token = "NPS-" + id.toString().replace("-", "").substring(0, 12).toUpperCase();
+        NpsSurvey survey = new NpsSurvey(
+            id, req.patientId(),
+            "Paciente " + req.patientId().toString().substring(0, 8),
+            req.appointmentId(), req.dentistId(), "Dentista asignado",
+            token,
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            null, "SENT", null, null, null
+        );
+        store.put(id, survey);
+        return ResponseEntity.ok(survey);
+    }}
+
+    @GetMapping("/respond/{{token}}")
+    public ResponseEntity<NpsSurvey> getSurveyByToken(@PathVariable String token) {{
+        return store.values().stream()
+            .filter(s -> token.equals(s.token()))
+            .findFirst()
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+    }}
+
+    @PostMapping("/respond/{{token}}")
+    public ResponseEntity<NpsSurvey> submitResponse(
+            @PathVariable String token,
+            @RequestBody SurveyResponse resp) {{
+        Optional<NpsSurvey> found = store.values().stream()
+            .filter(s -> token.equals(s.token()))
+            .findFirst();
+        if (found.isEmpty()) return ResponseEntity.notFound().build();
+        NpsSurvey s = found.get();
+        if ("RESPONDED".equals(s.status())) return ResponseEntity.badRequest().build();
+        NpsSurvey updated = new NpsSurvey(
+            s.id(), s.patientId(), s.patientName(), s.appointmentId(),
+            s.dentistId(), s.dentistName(), s.token(), s.sentAt(),
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            "RESPONDED", resp.score(), resp.comment(), resp.categoryScores()
+        );
+        store.put(s.id(), updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @GetMapping("/stats")
+    @PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+    public ResponseEntity<NpsStats> getStats() {{
+        List<NpsSurvey> responded = store.values().stream()
+            .filter(s -> "RESPONDED".equals(s.status()) && s.score() != null)
+            .collect(Collectors.toList());
+        int total = store.size();
+        int respondedCount = responded.size();
+        long promoters  = responded.stream().filter(s -> s.score() >= 9).count();
+        long passives   = responded.stream().filter(s -> s.score() >= 7 && s.score() <= 8).count();
+        long detractors = responded.stream().filter(s -> s.score() <= 6).count();
+        double npsScore = respondedCount == 0 ? 0 :
+            ((double)(promoters - detractors) / respondedCount) * 100;
+        double responseRate = total == 0 ? 0 : (double) respondedCount / total * 100;
+
+        Map<String, Double> avgCat = new LinkedHashMap<>();
+        for (String cat : CATEGORIES) {{
+            double avg = responded.stream()
+                .filter(s -> s.categoryScores() != null && s.categoryScores().containsKey(cat))
+                .mapToInt(s -> s.categoryScores().get(cat))
+                .average().orElse(0.0);
+            avgCat.put(cat, Math.round(avg * 10.0) / 10.0);
+        }}
+
+        Map<String, List<NpsSurvey>> byMonth = responded.stream()
+            .collect(Collectors.groupingBy(s -> s.sentAt().substring(0, 7)));
+        List<MonthlyNps> trend = byMonth.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .map(e -> {{
+                List<NpsSurvey> ms = e.getValue();
+                long mp = ms.stream().filter(s -> s.score() >= 9).count();
+                long md = ms.stream().filter(s -> s.score() <= 6).count();
+                double mnps = ms.isEmpty() ? 0 : ((double)(mp - md) / ms.size()) * 100;
+                return new MonthlyNps(e.getKey(), Math.round(mnps * 10.0) / 10.0, ms.size());
+            }})
+            .collect(Collectors.toList());
+
+        return ResponseEntity.ok(new NpsStats(
+            Math.round(npsScore * 10.0) / 10.0,
+            (int) promoters, (int) passives, (int) detractors,
+            respondedCount, Math.round(responseRate * 10.0) / 10.0,
+            avgCat, trend
+        ));
+    }}
+
+    @GetMapping("/responses")
+    @PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+    public ResponseEntity<List<NpsSurvey>> getResponses() {{
+        List<NpsSurvey> responses = store.values().stream()
+            .filter(s -> "RESPONDED".equals(s.status()))
+            .sorted(Comparator.comparing(NpsSurvey::respondedAt).reversed())
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(responses);
+    }}
+
+    public record NpsSurvey(
+        UUID id, UUID patientId, String patientName, UUID appointmentId,
+        UUID dentistId, String dentistName, String token, String sentAt,
+        String respondedAt, String status, Integer score, String comment,
+        Map<String, Integer> categoryScores
+    ) {{}}
+
+    public record SurveyRequest(UUID patientId, UUID appointmentId, UUID dentistId) {{}}
+
+    public record SurveyResponse(Integer score, String comment, Map<String, Integer> categoryScores) {{}}
+
+    public record NpsStats(
+        double npsScore, int promoters, int passives, int detractors, int total,
+        double responseRate, Map<String, Double> avgCategoryScores,
+        List<MonthlyNps> trend
+    ) {{}}
+
+    public record MonthlyNps(String month, double score, int count) {{}}
+}}
+"""
+
+    def generate_staff_controller(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/staff")
+@Tag(name = "Staff", description = "Employee and schedule management")
+@PreAuthorize("hasAnyRole('ADMIN')")
+public class StaffController {{
+
+    private final Map<UUID, StaffMember> staffStore = new ConcurrentHashMap<>();
+    private final Map<UUID, List<DaySchedule>> scheduleStore = new ConcurrentHashMap<>();
+    private final Map<UUID, VacationRequest> vacationStore = new ConcurrentHashMap<>();
+
+    public StaffController() {{
+        // 6 staff members: 2 dentists, 1 hygienist, 2 assistants, 1 receptionist
+        Object[][] demo = {{
+            {{ "00000000-0000-0000-0001-000000000001", "Dra. Mar\u00eda Garc\u00eda",    "DENTIST",      "Ortodoncia",        "garcia@clinica.es",   "+34 600 111 001", "12345678A", "2019-03-15", new BigDecimal("45.00"), "FULL_TIME",  true,  "#1565c0" }},
+            {{ "00000000-0000-0000-0001-000000000002", "Dr. Carlos Mart\u00ednez", "DENTIST",      "Endodoncia",        "martinez@clinica.es", "+34 600 111 002", "23456789B", "2020-06-01", new BigDecimal("42.00"), "FULL_TIME",  true,  "#0d47a1" }},
+            {{ "00000000-0000-0000-0001-000000000003", "Laura S\u00e1nchez",        "HYGIENIST",    "Higiene dental",    "sanchez@clinica.es",  "+34 600 111 003", "34567890C", "2021-01-10", new BigDecimal("22.00"), "FULL_TIME",  true,  "#00695c" }},
+            {{ "00000000-0000-0000-0001-000000000004", "Pedro Romero",         "ASSISTANT",    "Asistencia cl\u00ednica", "romero@clinica.es", "+34 600 111 004", "45678901D", "2021-09-01", new BigDecimal("16.00"), "FULL_TIME",  true,  "#2e7d32" }},
+            {{ "00000000-0000-0000-0001-000000000005", "Ana Torres",           "ASSISTANT",    "Asistencia cl\u00ednica", "torres@clinica.es", "+34 600 111 005", "56789012E", "2022-03-14", new BigDecimal("16.00"), "PART_TIME",  true,  "#388e3c" }},
+            {{ "00000000-0000-0000-0001-000000000006", "Elena Vega",           "RECEPTIONIST", "Atenci\u00f3n al cliente", "vega@clinica.es",  "+34 600 111 006", "67890123F", "2020-11-20", new BigDecimal("14.50"), "FULL_TIME",  true,  "#e65100" }},
+        }};
+        String[] dayNames = {{"Lunes", "Martes", "Mi\u00e9rcoles", "Jueves", "Viernes", "S\u00e1bado", "Domingo"}};
+        for (Object[] row : demo) {{
+            UUID id = UUID.fromString((String) row[0]);
+            StaffMember sm = new StaffMember(
+                id, (String) row[1], (String) row[2], (String) row[3],
+                (String) row[4], (String) row[5], (String) row[6],
+                LocalDate.parse((String) row[7]),
+                (BigDecimal) row[8], (String) row[9], (boolean) row[10], (String) row[11]
+            );
+            staffStore.put(id, sm);
+            boolean partTime = "PART_TIME".equals(row[9]);
+            List<DaySchedule> days = new ArrayList<>();
+            for (int d = 0; d < 7; d++) {{
+                boolean working = d < (partTime ? 4 : 5);
+                String start  = working ? "09:00" : "";
+                String end    = working ? (partTime ? "14:00" : "18:00") : "";
+                String bStart = working && !partTime ? "14:00" : "";
+                String bEnd   = working && !partTime ? "15:00" : "";
+                int hours     = working ? (partTime ? 5 : 8) : 0;
+                days.add(new DaySchedule(dayNames[d], working, start, end, bStart, bEnd, hours));
+            }}
+            scheduleStore.put(id, days);
+        }}
+        String fmtNow = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        Object[][] vacs = {{
+            {{ "00000000-0000-0000-0001-000000000001", "Dra. Mar\u00eda Garc\u00eda",    "2026-08-01", "2026-08-15", "Vacaciones verano",     "APPROVED", "Admin" }},
+            {{ "00000000-0000-0000-0001-000000000002", "Dr. Carlos Mart\u00ednez", "2026-07-14", "2026-07-25", "Vacaciones verano",     "APPROVED", "Admin" }},
+            {{ "00000000-0000-0000-0001-000000000002", "Dr. Carlos Mart\u00ednez", "2026-12-22", "2026-12-31", "Navidades",             "PENDING",  null    }},
+            {{ "00000000-0000-0000-0001-000000000003", "Laura S\u00e1nchez",        "2026-09-01", "2026-09-07", "Vacaciones septiembre", "PENDING",  null    }},
+            {{ "00000000-0000-0000-0001-000000000004", "Pedro Romero",         "2026-08-18", "2026-08-29", "Vacaciones agosto",     "PENDING",  null    }},
+            {{ "00000000-0000-0000-0001-000000000005", "Ana Torres",           "2026-06-23", "2026-06-30", "Vacaciones junio",      "APPROVED", "Admin" }},
+            {{ "00000000-0000-0000-0001-000000000006", "Elena Vega",           "2026-12-22", "2026-12-31", "Navidades",             "PENDING",  null    }},
+        }};
+        for (Object[] v : vacs) {{
+            UUID vid = UUID.randomUUID();
+            vacationStore.put(vid, new VacationRequest(
+                vid, UUID.fromString((String) v[0]), (String) v[1],
+                (String) v[2], (String) v[3], (String) v[4],
+                (String) v[5], fmtNow, (String) v[6]
+            ));
+        }}
+    }}
+
+    @GetMapping
+    public ResponseEntity<List<StaffMember>> listStaff() {{
+        List<StaffMember> list = new ArrayList<>(staffStore.values());
+        list.sort(Comparator.comparing(StaffMember::name));
+        return ResponseEntity.ok(list);
+    }}
+
+    @PostMapping
+    public ResponseEntity<StaffMember> createStaff(@RequestBody StaffMember req) {{
+        UUID id = UUID.randomUUID();
+        StaffMember sm = new StaffMember(
+            id, req.name(), req.role(), req.specialty(), req.email(),
+            req.phone(), req.nif(),
+            req.hireDate() != null ? req.hireDate() : LocalDate.now(),
+            req.hourlyRate() != null ? req.hourlyRate() : BigDecimal.ZERO,
+            req.contractType() != null ? req.contractType() : "FULL_TIME",
+            req.active(), req.color() != null ? req.color() : "#1565c0"
+        );
+        staffStore.put(id, sm);
+        return ResponseEntity.ok(sm);
+    }}
+
+    @PutMapping("/{{id}}")
+    public ResponseEntity<StaffMember> updateStaff(
+            @PathVariable UUID id, @RequestBody StaffMember req) {{
+        if (!staffStore.containsKey(id)) return ResponseEntity.notFound().build();
+        StaffMember updated = new StaffMember(
+            id, req.name(), req.role(), req.specialty(), req.email(),
+            req.phone(), req.nif(), req.hireDate(), req.hourlyRate(),
+            req.contractType(), req.active(), req.color()
+        );
+        staffStore.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @GetMapping("/{{id}}/schedule")
+    public ResponseEntity<WeeklySchedule> getSchedule(@PathVariable UUID id) {{
+        StaffMember sm = staffStore.get(id);
+        if (sm == null) return ResponseEntity.notFound().build();
+        List<DaySchedule> days = scheduleStore.getOrDefault(id, new ArrayList<>());
+        return ResponseEntity.ok(new WeeklySchedule(id, sm.name(), days));
+    }}
+
+    @PutMapping("/{{id}}/schedule")
+    public ResponseEntity<WeeklySchedule> updateSchedule(
+            @PathVariable UUID id, @RequestBody WeeklySchedule req) {{
+        StaffMember sm = staffStore.get(id);
+        if (sm == null) return ResponseEntity.notFound().build();
+        scheduleStore.put(id, req.days() != null ? req.days() : new ArrayList<>());
+        return ResponseEntity.ok(new WeeklySchedule(id, sm.name(), req.days()));
+    }}
+
+    @PostMapping("/{{id}}/vacation")
+    public ResponseEntity<VacationRequest> requestVacation(
+            @PathVariable UUID id, @RequestBody VacationCreate req) {{
+        StaffMember sm = staffStore.get(id);
+        if (sm == null) return ResponseEntity.notFound().build();
+        UUID vid = UUID.randomUUID();
+        String now = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        VacationRequest vr = new VacationRequest(
+            vid, id, sm.name(), req.startDate(), req.endDate(),
+            req.reason(), "PENDING", now, null
+        );
+        vacationStore.put(vid, vr);
+        return ResponseEntity.ok(vr);
+    }}
+
+    @GetMapping("/vacations")
+    public ResponseEntity<List<VacationRequest>> getVacations(
+            @RequestParam(required = false) String month) {{
+        List<VacationRequest> result = new ArrayList<>(vacationStore.values());
+        if (month != null && !month.isBlank()) {{
+            result = result.stream()
+                .filter(v -> v.startDate().startsWith(month) || v.endDate().startsWith(month))
+                .collect(Collectors.toList());
+        }}
+        result.sort(Comparator.comparing(VacationRequest::startDate));
+        return ResponseEntity.ok(result);
+    }}
+
+    @PutMapping("/vacations/{{vid}}/approve")
+    public ResponseEntity<VacationRequest> approveVacation(@PathVariable UUID vid) {{
+        VacationRequest v = vacationStore.get(vid);
+        if (v == null) return ResponseEntity.notFound().build();
+        VacationRequest updated = new VacationRequest(
+            v.id(), v.staffId(), v.staffName(), v.startDate(), v.endDate(),
+            v.reason(), "APPROVED", v.requestedAt(), "Admin"
+        );
+        vacationStore.put(vid, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @PutMapping("/vacations/{{vid}}/reject")
+    public ResponseEntity<VacationRequest> rejectVacation(@PathVariable UUID vid) {{
+        VacationRequest v = vacationStore.get(vid);
+        if (v == null) return ResponseEntity.notFound().build();
+        VacationRequest updated = new VacationRequest(
+            v.id(), v.staffId(), v.staffName(), v.startDate(), v.endDate(),
+            v.reason(), "REJECTED", v.requestedAt(), "Admin"
+        );
+        vacationStore.put(vid, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @GetMapping("/hours")
+    public ResponseEntity<List<MonthlyHours>> getMonthlyHours(
+            @RequestParam(required = false) String month) {{
+        String targetMonth = (month != null && !month.isBlank())
+            ? month : LocalDate.now().toString().substring(0, 7);
+        List<MonthlyHours> result = new ArrayList<>();
+        for (StaffMember sm : staffStore.values()) {{
+            List<DaySchedule> days = scheduleStore.getOrDefault(sm.id(), new ArrayList<>());
+            int weeklyHours = days.stream().mapToInt(DaySchedule::totalHours).sum();
+            int scheduledHours = weeklyHours * 4;
+            long vacDays = vacationStore.values().stream()
+                .filter(v -> v.staffId().equals(sm.id()) && "APPROVED".equals(v.status())
+                    && (v.startDate().startsWith(targetMonth) || v.endDate().startsWith(targetMonth)))
+                .mapToLong(v -> {{
+                    try {{
+                        LocalDate s = LocalDate.parse(v.startDate());
+                        LocalDate e = LocalDate.parse(v.endDate());
+                        return java.time.temporal.ChronoUnit.DAYS.between(s, e) + 1;
+                    }} catch (Exception ex) {{ return 0; }}
+                }}).sum();
+            int workedHours = Math.max(0, scheduledHours - (int)(vacDays * 8));
+            BigDecimal salary = sm.hourlyRate().multiply(new BigDecimal(workedHours));
+            result.add(new MonthlyHours(
+                sm.id(), sm.name(), targetMonth,
+                scheduledHours, workedHours, (int) vacDays, 0, salary
+            ));
+        }}
+        result.sort(Comparator.comparing(MonthlyHours::staffName));
+        return ResponseEntity.ok(result);
+    }}
+
+    // ---- Records ----
+
+    public record StaffMember(
+        UUID id, String name, String role, String specialty,
+        String email, String phone, String nif, LocalDate hireDate,
+        BigDecimal hourlyRate, String contractType, boolean active, String color
+    ) {{}}
+
+    public record WeeklySchedule(UUID staffId, String staffName, List<DaySchedule> days) {{}}
+
+    public record DaySchedule(
+        String day, boolean working, String startTime, String endTime,
+        String breakStart, String breakEnd, int totalHours
+    ) {{}}
+
+    public record VacationRequest(
+        UUID id, UUID staffId, String staffName,
+        String startDate, String endDate, String reason,
+        String status, String requestedAt, String approvedBy
+    ) {{}}
+
+    public record VacationCreate(String startDate, String endDate, String reason) {{}}
+
+    public record MonthlyHours(
+        UUID staffId, String staffName, String month,
+        int scheduledHours, int workedHours, int vacationDays,
+        int sickDays, BigDecimal grossSalary
+    ) {{}}
+}}
+"""
+
     def generate_waitlist_controller(self, base_package: str) -> str:
         return f"""package {base_package}.shared;
 
@@ -5551,6 +6012,411 @@ public class WaitlistController {{
 
     public record AvailableSlot(
         String date, String time, UUID dentistId, String dentistName, String operatory
+    ) {{}}
+}}
+"""
+
+    # ---- Round 38: Operatories / Sillones ----
+    def generate_operatory_controller(self, base_package: str) -> str:
+        return f"""package {base_package}.shared;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import jakarta.annotation.PostConstruct;
+import java.time.LocalDate;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/operatories")
+@Tag(name = "Operatories", description = "Dental chair and operatory room management")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class OperatoryController {{
+
+    private final Map<UUID, Operatory> store = new ConcurrentHashMap<>();
+
+    @PostConstruct
+    public void init() {{
+        Object[][] data = {{
+            {{ UUID.fromString("00000000-0000-0000-0001-000000000001"), "Sillón 1",   "GENERAL",  "Sillón dental, turbina, micromotor, lámpara, escupidera, banqueta",           true,  "#1976d2" }},
+            {{ UUID.fromString("00000000-0000-0000-0001-000000000002"), "Sillón 2",   "GENERAL",  "Sillón dental, turbina, micromotor, lámpara, escupidera, banqueta",           true,  "#e53935" }},
+            {{ UUID.fromString("00000000-0000-0000-0001-000000000003"), "Quirófano",  "SURGERY",  "Mesa quirúrgica, bisturí eléctrico, aspirador quirúrgico, lámpara cialítica",  true,  "#43a047" }},
+            {{ UUID.fromString("00000000-0000-0000-0001-000000000004"), "Radiología", "XRAY",     "Equipo radiográfico digital, sensor intraoral, ortopantomógrafo",              true,  "#fb8c00" }},
+            {{ UUID.fromString("00000000-0000-0000-0001-000000000005"), "Higiene",    "HYGIENE",  "Sillón dental, ultrasonidos, air-flow, lámpara, escupidera",                   true,  "#8e24aa" }},
+        }};
+        for (Object[] row : data) {{
+            UUID id = (UUID) row[0];
+            store.put(id, new Operatory(id, (String) row[1], (String) row[2],
+                (String) row[3], (boolean) row[4], (String) row[5]));
+        }}
+    }}
+
+    @GetMapping
+    public ResponseEntity<List<Operatory>> listOperatories() {{
+        return ResponseEntity.ok(new ArrayList<>(store.values()));
+    }}
+
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Operatory> createOperatory(@RequestBody OperatoryRequest req) {{
+        UUID id = UUID.randomUUID();
+        Operatory op = new Operatory(id, req.name(), req.type(), req.equipment(), true,
+            req.color() != null ? req.color() : "#607d8b");
+        store.put(id, op);
+        return ResponseEntity.ok(op);
+    }}
+
+    @PutMapping("/{{id}}")
+    public ResponseEntity<Operatory> updateOperatory(@PathVariable UUID id,
+            @RequestBody OperatoryRequest req) {{
+        Operatory ex = store.get(id);
+        if (ex == null) return ResponseEntity.notFound().build();
+        Operatory updated = new Operatory(id,
+            req.name()      != null ? req.name()      : ex.name(),
+            req.type()      != null ? req.type()      : ex.type(),
+            req.equipment() != null ? req.equipment() : ex.equipment(),
+            ex.active(),
+            req.color()     != null ? req.color()     : ex.color());
+        store.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @GetMapping("/{{id}}/schedule")
+    public ResponseEntity<List<OperatorySlot>> getSchedule(
+            @PathVariable UUID id,
+            @RequestParam(required = false) String date) {{
+        if (!store.containsKey(id)) return ResponseEntity.notFound().build();
+        String targetDate = (date != null && !date.isBlank()) ? date : LocalDate.now().toString();
+        return ResponseEntity.ok(buildSlots(targetDate));
+    }}
+
+    @GetMapping("/occupancy")
+    public ResponseEntity<OccupancySummary> getOccupancy(
+            @RequestParam(required = false) String date) {{
+        String targetDate = (date != null && !date.isBlank()) ? date : LocalDate.now().toString();
+        List<OperatoryOccupancy> list = store.values().stream()
+            .filter(Operatory::active)
+            .map(op -> {{
+                List<OperatorySlot> slots = buildSlots(targetDate);
+                int total    = slots.size();
+                int occupied = (int) slots.stream().filter(OperatorySlot::occupied).count();
+                double rate  = total > 0 ? (double) occupied / total * 100.0 : 0.0;
+                return new OperatoryOccupancy(op.id(), op.name(), op.type(), op.color(),
+                    total, occupied, rate, slots);
+            }})
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(new OccupancySummary(targetDate, list));
+    }}
+
+    private List<OperatorySlot> buildSlots(String date) {{
+        String[][] appts = {{
+            {{ "09:00", "Ana García",     "Dra. Sánchez", "Revisión",   UUID.randomUUID().toString() }},
+            {{ "10:00", "Luis Martínez",  "Dr. Pérez",    "Empaste",    UUID.randomUUID().toString() }},
+            {{ "11:00", "María López",    "Dra. Sánchez", "Ortodoncia", UUID.randomUUID().toString() }},
+            {{ "12:00", "Juan Fernández", "Dr. Pérez",    "Endodoncia", UUID.randomUUID().toString() }},
+            {{ "16:00", "Sara Gómez",     "Dra. Sánchez", "Limpieza",   UUID.randomUUID().toString() }},
+            {{ "17:00", "Pedro Ruiz",     "Dr. Pérez",    "Extracción", UUID.randomUUID().toString() }},
+        }};
+        List<String> hours = List.of(
+            "09:00", "10:00", "11:00", "12:00", "13:00",
+            "16:00", "17:00", "18:00", "19:00"
+        );
+        Map<String, String[]> bookedMap = new LinkedHashMap<>();
+        for (String[] a : appts) bookedMap.put(a[0], a);
+        List<OperatorySlot> slots = new ArrayList<>();
+        for (String hour : hours) {{
+            String[] a = bookedMap.get(hour);
+            if (a != null) {{
+                slots.add(new OperatorySlot(hour, true, a[1], a[2], a[3], a[4]));
+            }} else {{
+                slots.add(new OperatorySlot(hour, false, null, null, null, null));
+            }}
+        }}
+        return slots;
+    }}
+
+    public record Operatory(
+        UUID id, String name, String type, String equipment, boolean active, String color
+    ) {{}}
+
+    public record OperatoryRequest(
+        String name, String type, String equipment, String color
+    ) {{}}
+
+    public record OperatorySlot(
+        String time, boolean occupied, String patientName,
+        String dentistName, String procedure, String appointmentId
+    ) {{}}
+
+    public record OccupancySummary(
+        String date, List<OperatoryOccupancy> operatories
+    ) {{}}
+
+    public record OperatoryOccupancy(
+        UUID id, String name, String type, String color,
+        int totalSlots, int occupiedSlots, double occupancyRate, List<OperatorySlot> slots
+    ) {{}}
+}}
+"""
+
+    def generate_insurance_claims_controller(self, base_package: str) -> str:
+        return f"""\
+package {base_package}.shared;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/insurance-claims")
+@Tag(name = "Insurance Claims", description = "Insurance claim submission and tracking")
+@PreAuthorize("hasAnyRole('ADMIN','DENTIST')")
+public class InsuranceClaimsController {{
+
+    private final Map<UUID, InsuranceClaim> store = new ConcurrentHashMap<>();
+
+    private static final List<Insurer> INSURERS = List.of(
+        new Insurer("MAPFRE",  "MAPFRE",  "siniestros@mapfre.com",   "https://portal.mapfre.es"),
+        new Insurer("AXA",     "AXA",     "dental@axa.es",            "https://dental.axa.es"),
+        new Insurer("Sanitas", "SANITAS", "reclamaciones@sanitas.es", "https://www.sanitas.es/portal"),
+        new Insurer("DKV",     "DKV",     "clinicas@dkv.es",          "https://portal.dkv.es"),
+        new Insurer("Asisa",   "ASISA",   "dental@asisa.es",          "https://portal.asisa.es"),
+        new Insurer("Adeslas", "ADESLAS", "prestaciones@adeslas.es",  "https://adeslas.es/prestaciones")
+    );
+
+    public InsuranceClaimsController() {{
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000001"),
+             UUID.fromString("10000000-0000-0000-0000-000000000001"), "Ana García",
+             "MAPFRE", "MAP-2024-001",
+             UUID.fromString("20000000-0000-0000-0000-000000000001"), "Dra. López",
+             "D3330", "Endodoncia molar", LocalDate.of(2025,1,10),
+             new BigDecimal("820.00"), new BigDecimal("600.00"), "APPROVED",
+             "2025-01-12T09:00:00Z", "2025-02-01T14:00:00Z", "Aprobado sin incidencias", null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000002"),
+             UUID.fromString("10000000-0000-0000-0000-000000000002"), "Carlos Ruiz",
+             "AXA", "AXA-2025-0042",
+             UUID.fromString("20000000-0000-0000-0000-000000000002"), "Dr. Martínez",
+             "D2740", "Corona porcelana", LocalDate.of(2025,2,5),
+             new BigDecimal("950.00"), new BigDecimal("700.00"), "SUBMITTED",
+             "2025-02-07T10:30:00Z", null, null, null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000003"),
+             UUID.fromString("10000000-0000-0000-0000-000000000003"), "María Sánchez",
+             "Sanitas", "SAN-88732",
+             UUID.fromString("20000000-0000-0000-0000-000000000001"), "Dra. López",
+             "D1110", "Profilaxis adulto", LocalDate.of(2025,2,15),
+             new BigDecimal("90.00"), new BigDecimal("70.00"), "PAID",
+             "2025-02-16T08:00:00Z", "2025-03-01T11:00:00Z", null, null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000004"),
+             UUID.fromString("10000000-0000-0000-0000-000000000004"), "Pedro Jiménez",
+             "DKV", "DKV-2025-1100",
+             UUID.fromString("20000000-0000-0000-0000-000000000002"), "Dr. Martínez",
+             "D7210", "Extracción quirúrgica", LocalDate.of(2025,3,1),
+             new BigDecimal("340.00"), new BigDecimal("250.00"), "IN_REVIEW",
+             "2025-03-03T09:15:00Z", null, "Pendiente de revisión", null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000005"),
+             UUID.fromString("10000000-0000-0000-0000-000000000005"), "Lucía Fernández",
+             "Asisa", "ASI-2025-0567",
+             UUID.fromString("20000000-0000-0000-0000-000000000003"), "Dra. García",
+             "D2160", "Extracción diente primario", LocalDate.of(2025,3,8),
+             new BigDecimal("150.00"), new BigDecimal("60.00"), "REJECTED",
+             "2025-03-09T10:00:00Z", "2025-03-20T16:00:00Z", null, "Diente no cubierto por póliza");
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000006"),
+             UUID.fromString("10000000-0000-0000-0000-000000000006"), "Jorge Torres",
+             "Adeslas", "ADE-2025-3301",
+             UUID.fromString("20000000-0000-0000-0000-000000000003"), "Dra. García",
+             "D4341", "Periodoncia - raspado", LocalDate.of(2025,3,12),
+             new BigDecimal("480.00"), new BigDecimal("380.00"), "PARTIALLY_APPROVED",
+             "2025-03-13T11:00:00Z", "2025-03-28T09:00:00Z", "Aprobado parcialmente", "Cuadrante 4 no cubierto");
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000007"),
+             UUID.fromString("10000000-0000-0000-0000-000000000001"), "Ana García",
+             "MAPFRE", "MAP-2024-001",
+             UUID.fromString("20000000-0000-0000-0000-000000000001"), "Dra. López",
+             "D2950", "Reconstrucción", LocalDate.of(2025,4,2),
+             new BigDecimal("210.00"), new BigDecimal("160.00"), "DRAFT",
+             null, null, "Borrador pendiente de envío", null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000008"),
+             UUID.fromString("10000000-0000-0000-0000-000000000007"), "Elena Moreno",
+             "AXA", "AXA-2025-0099",
+             UUID.fromString("20000000-0000-0000-0000-000000000002"), "Dr. Martínez",
+             "D5110", "Dentadura completa sup.", LocalDate.of(2025,4,5),
+             new BigDecimal("1800.00"), new BigDecimal("900.00"), "SUBMITTED",
+             "2025-04-07T08:30:00Z", null, null, null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000009"),
+             UUID.fromString("10000000-0000-0000-0000-000000000008"), "Antonio Díaz",
+             "Sanitas", "SAN-99201",
+             UUID.fromString("20000000-0000-0000-0000-000000000003"), "Dra. García",
+             "D2391", "Incrustación compuesta", LocalDate.of(2025,4,10),
+             new BigDecimal("320.00"), new BigDecimal("240.00"), "APPROVED",
+             "2025-04-11T09:45:00Z", "2025-04-25T12:00:00Z", null, null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000010"),
+             UUID.fromString("10000000-0000-0000-0000-000000000009"), "Carmen Vega",
+             "DKV", "DKV-2025-2200",
+             UUID.fromString("20000000-0000-0000-0000-000000000001"), "Dra. López",
+             "D6750", "Corona metal-cerámica", LocalDate.of(2025,4,18),
+             new BigDecimal("780.00"), new BigDecimal("500.00"), "IN_REVIEW",
+             "2025-04-20T10:00:00Z", null, null, null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000011"),
+             UUID.fromString("10000000-0000-0000-0000-000000000010"), "Rafael Herrera",
+             "Asisa", "ASI-2025-1234",
+             UUID.fromString("20000000-0000-0000-0000-000000000002"), "Dr. Martínez",
+             "D1208", "Selladores", LocalDate.of(2025,4,22),
+             new BigDecimal("120.00"), new BigDecimal("120.00"), "PAID",
+             "2025-04-23T08:00:00Z", "2025-05-02T10:00:00Z", null, null);
+        seed(UUID.fromString("00000000-0000-0000-0000-000000000012"),
+             UUID.fromString("10000000-0000-0000-0000-000000000011"), "Isabel Romero",
+             "Adeslas", "ADE-2025-5500",
+             UUID.fromString("20000000-0000-0000-0000-000000000003"), "Dra. García",
+             "D3220", "Pulpectomía primario", LocalDate.of(2025,5,3),
+             new BigDecimal("280.00"), new BigDecimal("200.00"), "SUBMITTED",
+             "2025-05-05T11:00:00Z", null, null, null);
+    }}
+
+    private void seed(UUID id, UUID patientId, String patientName,
+                      String insurerName, String policyNumber,
+                      UUID dentistId, String dentistName,
+                      String procedureCode, String procedureName, LocalDate serviceDate,
+                      BigDecimal totalAmount, BigDecimal coveredAmount,
+                      String status, String submittedAt, String resolvedAt,
+                      String notes, String rejectionReason) {{
+        BigDecimal patientAmount = totalAmount.subtract(coveredAmount);
+        store.put(id, new InsuranceClaim(id, patientId, patientName, insurerName, policyNumber,
+                dentistId, dentistName, procedureCode, procedureName, serviceDate,
+                totalAmount, coveredAmount, patientAmount, status,
+                submittedAt, resolvedAt, notes, rejectionReason));
+    }}
+
+    @GetMapping
+    public ResponseEntity<List<InsuranceClaim>> listClaims(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String insuranceId) {{
+        List<InsuranceClaim> result = store.values().stream()
+            .filter(c -> status == null || status.isBlank() || c.status().equalsIgnoreCase(status))
+            .filter(c -> insuranceId == null || insuranceId.isBlank() ||
+                         c.insurerName().equalsIgnoreCase(insuranceId))
+            .sorted(Comparator.comparing(InsuranceClaim::serviceDate))
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }}
+
+    @PostMapping
+    public ResponseEntity<InsuranceClaim> createClaim(@RequestBody ClaimRequest req) {{
+        UUID id = UUID.randomUUID();
+        BigDecimal covered = req.coveredAmount() != null ? req.coveredAmount() : BigDecimal.ZERO;
+        BigDecimal patientAmount = req.totalAmount().subtract(covered);
+        InsuranceClaim claim = new InsuranceClaim(
+            id, req.patientId(), "Paciente " + req.patientId().toString().substring(0, 8),
+            req.insurerName(), req.policyNumber(),
+            req.dentistId(), "Dentista " + req.dentistId().toString().substring(0, 8),
+            req.procedureCode(), req.procedureName(), req.serviceDate(),
+            req.totalAmount(), covered, patientAmount,
+            "DRAFT", null, null, req.notes(), null
+        );
+        store.put(id, claim);
+        return ResponseEntity.ok(claim);
+    }}
+
+    @GetMapping("/{{id}}")
+    public ResponseEntity<InsuranceClaim> getClaim(@PathVariable UUID id) {{
+        InsuranceClaim c = store.get(id);
+        if (c == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(c);
+    }}
+
+    @PutMapping("/{{id}}/status")
+    public ResponseEntity<InsuranceClaim> updateStatus(
+            @PathVariable UUID id,
+            @RequestBody StatusUpdateRequest req) {{
+        InsuranceClaim c = store.get(id);
+        if (c == null) return ResponseEntity.notFound().build();
+        String resolvedAt = c.resolvedAt();
+        if (List.of("APPROVED","PARTIALLY_APPROVED","REJECTED","PAID").contains(req.status())) {{
+            resolvedAt = Instant.now().toString();
+        }}
+        String submittedAt = c.submittedAt();
+        if ("SUBMITTED".equals(req.status()) && submittedAt == null) {{
+            submittedAt = Instant.now().toString();
+        }}
+        InsuranceClaim updated = new InsuranceClaim(
+            c.id(), c.patientId(), c.patientName(), c.insurerName(), c.policyNumber(),
+            c.dentistId(), c.dentistName(), c.procedureCode(), c.procedureName(),
+            c.serviceDate(), c.totalAmount(), c.coveredAmount(), c.patientAmount(),
+            req.status(), submittedAt, resolvedAt,
+            req.notes() != null ? req.notes() : c.notes(),
+            req.rejectionReason() != null ? req.rejectionReason() : c.rejectionReason()
+        );
+        store.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }}
+
+    @GetMapping("/stats")
+    public ResponseEntity<List<InsuranceStats>> getStats() {{
+        Map<String, List<InsuranceClaim>> byInsurer = store.values().stream()
+            .collect(Collectors.groupingBy(InsuranceClaim::insurerName));
+        List<InsuranceStats> stats = byInsurer.entrySet().stream()
+            .map(entry -> {{
+                String name = entry.getKey();
+                List<InsuranceClaim> claims = entry.getValue();
+                int total = claims.size();
+                int approved = (int) claims.stream().filter(c ->
+                    "APPROVED".equals(c.status()) || "PARTIALLY_APPROVED".equals(c.status())
+                    || "PAID".equals(c.status())).count();
+                int rejected = (int) claims.stream().filter(c -> "REJECTED".equals(c.status())).count();
+                int pending = total - approved - rejected;
+                BigDecimal totalSubmitted = claims.stream().map(InsuranceClaim::totalAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal totalRecovered = claims.stream().map(InsuranceClaim::coveredAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                double approvalRate = total > 0 ? (approved * 100.0 / total) : 0.0;
+                return new InsuranceStats(name, total, approved, rejected, pending,
+                    totalSubmitted, totalRecovered, approvalRate);
+            }})
+            .sorted(Comparator.comparing(InsuranceStats::insurerName))
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(stats);
+    }}
+
+    @GetMapping("/insurers")
+    public ResponseEntity<List<Insurer>> getInsurers() {{
+        return ResponseEntity.ok(INSURERS);
+    }}
+
+    public record InsuranceClaim(
+        UUID id, UUID patientId, String patientName, String insurerName,
+        String policyNumber, UUID dentistId, String dentistName,
+        String procedureCode, String procedureName, LocalDate serviceDate,
+        BigDecimal totalAmount, BigDecimal coveredAmount, BigDecimal patientAmount,
+        String status, String submittedAt, String resolvedAt, String notes, String rejectionReason
+    ) {{}}
+
+    public record ClaimRequest(
+        UUID patientId, String insurerName, String policyNumber, UUID dentistId,
+        String procedureCode, String procedureName, LocalDate serviceDate,
+        BigDecimal totalAmount, BigDecimal coveredAmount, String notes
+    ) {{}}
+
+    public record StatusUpdateRequest(
+        String status, String notes, String rejectionReason
+    ) {{}}
+
+    public record InsuranceStats(
+        String insurerName, int totalClaims, int approved, int rejected,
+        int pending, BigDecimal totalSubmitted, BigDecimal totalRecovered, double approvalRate
+    ) {{}}
+
+    public record Insurer(
+        String name, String code, String contactEmail, String portalUrl
     ) {{}}
 }}
 """

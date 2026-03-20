@@ -7603,3 +7603,736 @@ export default function WaitlistPage() {
   );
 }
 """
+
+    def generate_nps_survey_form_tsx(self) -> str:
+        return r"""import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+
+const CATEGORIES = ['atención', 'puntualidad', 'instalaciones', 'precio', 'resultado'];
+
+export default function NpsSurveyForm({ token }: { token: string }) {
+  const [survey, setSurvey] = useState<any>(null);
+  const [score, setScore] = useState<number | null>(null);
+  const [comment, setComment] = useState('');
+  const [catScores, setCatScores] = useState<Record<string, number>>({
+    atención: 3, puntualidad: 3, instalaciones: 3, precio: 3, resultado: 3,
+  });
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/nps/respond/${token}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { setSurvey(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [token]);
+
+  async function handleSubmit() {
+    if (score === null) { setError('Por favor, indica tu puntuación (0-10)'); return; }
+    setError('');
+    const res = await fetch(`${API_BASE}/api/nps/respond/${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ score, comment, categoryScores: catScores }),
+    });
+    if (res.ok) setSubmitted(true);
+    else setError('Error al enviar la encuesta. Inténtalo de nuevo.');
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', fontFamily: 'sans-serif' }}>Cargando encuesta...</div>;
+  if (!survey) return <div style={{ padding: 40, textAlign: 'center', fontFamily: 'sans-serif', color: '#c62828' }}>Encuesta no encontrada o expirada.</div>;
+  if (survey.status === 'RESPONDED' || submitted) {
+    return (
+      <div style={{ maxWidth: 500, margin: '60px auto', fontFamily: 'sans-serif', textAlign: 'center', padding: 40, background: '#e8f5e9', borderRadius: 16, border: '1px solid #a5d6a7' }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>✓</div>
+        <h2 style={{ color: '#2e7d32', marginBottom: 12 }}>¡Gracias por tu respuesta!</h2>
+        <p style={{ color: '#388e3c', fontSize: 16 }}>Tu opinión es muy importante para nosotros. Seguiremos trabajando para mejorar.</p>
+      </div>
+    );
+  }
+
+  const scoreColor = (s: number) => s >= 9 ? '#2e7d32' : s >= 7 ? '#f57f17' : '#c62828';
+
+  return (
+    <div style={{ maxWidth: 560, margin: '40px auto', fontFamily: 'sans-serif', padding: '0 16px' }}>
+      <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 2px 16px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+        <div style={{ background: '#1565c0', padding: '28px 32px', color: '#fff' }}>
+          <h2 style={{ margin: 0, fontSize: 22 }}>Encuesta de satisfacción</h2>
+          {survey.dentistName && <p style={{ margin: '8px 0 0', opacity: 0.85, fontSize: 14 }}>Cita con {survey.dentistName}</p>}
+        </div>
+
+        <div style={{ padding: '28px 32px' }}>
+          <h3 style={{ color: '#1565c0', marginTop: 0, fontSize: 17 }}>
+            ¿Cómo puntuarías tu experiencia general? <span style={{ color: '#c62828' }}>*</span>
+          </h3>
+          <p style={{ color: '#666', fontSize: 13, marginBottom: 16, marginTop: -8 }}>0 = muy insatisfecho · 10 = muy satisfecho</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
+            {Array.from({ length: 11 }, (_, i) => (
+              <button key={i} onClick={() => setScore(i)}
+                style={{
+                  width: 44, height: 44, borderRadius: '50%', border: '2px solid',
+                  borderColor: score === i ? scoreColor(i) : '#ddd',
+                  background: score === i ? scoreColor(i) : '#fff',
+                  color: score === i ? '#fff' : '#333',
+                  fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}>
+                {i}
+              </button>
+            ))}
+          </div>
+          {score !== null && (
+            <p style={{ color: scoreColor(score), fontWeight: 600, marginBottom: 20, fontSize: 14 }}>
+              {score >= 9 ? 'Promotor — ¡Genial! 🎉' : score >= 7 ? 'Pasivo — Bien, pero podemos mejorar' : 'Detractor — Sentimos que no hayas quedado satisfecho'}
+            </p>
+          )}
+
+          <h3 style={{ color: '#1565c0', fontSize: 17, marginBottom: 16 }}>Valoraciones por categoría (1–5)</h3>
+          {CATEGORIES.map(cat => (
+            <div key={cat} style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 14, fontWeight: 500, textTransform: 'capitalize' }}>{cat}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#1565c0' }}>{catScores[cat]}/5</span>
+              </div>
+              <input type="range" min={1} max={5} step={1} value={catScores[cat]}
+                onChange={e => setCatScores(prev => ({ ...prev, [cat]: Number(e.target.value) }))}
+                style={{ width: '100%', accentColor: '#1565c0' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#999' }}>
+                <span>Muy malo</span><span>Excelente</span>
+              </div>
+            </div>
+          ))}
+
+          <h3 style={{ color: '#1565c0', fontSize: 17, marginBottom: 8 }}>Comentarios (opcional)</h3>
+          <textarea value={comment} onChange={e => setComment(e.target.value)}
+            placeholder="Cuéntanos más sobre tu experiencia..."
+            rows={4}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, resize: 'vertical', boxSizing: 'border-box' }} />
+
+          {error && <p style={{ color: '#c62828', fontSize: 13, marginTop: 8 }}>{error}</p>}
+
+          <button onClick={handleSubmit}
+            style={{ marginTop: 20, width: '100%', padding: '13px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>
+            Enviar valoración
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+"""
+
+    def generate_nps_page_tsx(self) -> str:
+        return r"""import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+const CATEGORIES = ['atención', 'puntualidad', 'instalaciones', 'precio', 'resultado'];
+
+function npsColor(score: number) {
+  return score >= 50 ? '#2e7d32' : score >= 0 ? '#f57f17' : '#c62828';
+}
+
+function scoreBadge(score: number | null) {
+  if (score === null) return <span style={{ color: '#999', fontSize: 13 }}>—</span>;
+  const bg = score >= 9 ? '#e8f5e9' : score >= 7 ? '#fff8e1' : '#ffebee';
+  const color = score >= 9 ? '#2e7d32' : score >= 7 ? '#e65100' : '#c62828';
+  return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 13, fontWeight: 700, background: bg, color }}>{score}</span>;
+}
+
+function statusBadge(s: string) {
+  const cfg: Record<string, [string, string]> = {
+    SENT:      ['#1565c0', '#fff'],
+    RESPONDED: ['#2e7d32', '#fff'],
+    EXPIRED:   ['#757575', '#fff'],
+  };
+  const [bg, color] = cfg[s] ?? ['#eee', '#333'];
+  return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: bg, color }}>{s}</span>;
+}
+
+export default function NpsPage() {
+  const [tab, setTab] = useState<'dashboard' | 'surveys' | 'send'>('dashboard');
+  const [surveys, setSurveys] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
+  const [responses, setResponses] = useState<any[]>([]);
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
+  const [sendForm, setSendForm] = useState({ patientId: '', appointmentId: '', dentistId: '' });
+  const [sendMsg, setSendMsg] = useState('');
+  const [sendToken, setSendToken] = useState('');
+  const [sendError, setSendError] = useState('');
+
+  useEffect(() => { loadAll(); }, []);
+
+  async function loadAll() {
+    const [rs, rr, rStats] = await Promise.all([
+      apiFetch(`${API_BASE}/api/nps/surveys`),
+      apiFetch(`${API_BASE}/api/nps/responses`),
+      apiFetch(`${API_BASE}/api/nps/stats`),
+    ]);
+    if (rs.ok) setSurveys(await rs.json());
+    if (rr.ok) setResponses(await rr.json());
+    if (rStats.ok) setStats(await rStats.json());
+  }
+
+  async function sendSurvey() {
+    setSendMsg(''); setSendError(''); setSendToken('');
+    if (!sendForm.patientId.trim()) { setSendError('ID de paciente requerido'); return; }
+    const res = await apiFetch(`${API_BASE}/api/nps/surveys`, {
+      method: 'POST',
+      body: JSON.stringify(sendForm),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setSendToken(data.token);
+      setSendMsg(`Encuesta enviada correctamente. Token: ${data.token}`);
+      setSendForm({ patientId: '', appointmentId: '', dentistId: '' });
+      loadAll();
+    } else {
+      setSendError('Error al enviar la encuesta.');
+    }
+  }
+
+  const filteredSurveys = surveys.filter(s => {
+    if (filterStatus && s.status !== filterStatus) return false;
+    if (filterFrom && s.sentAt < filterFrom) return false;
+    if (filterTo && s.sentAt > filterTo + 'T99') return false;
+    return true;
+  });
+
+  const trend = Array.isArray(stats?.trend) ? stats.trend : [];
+  const avgCat = stats?.avgCategoryScores ?? {};
+  const recent5 = Array.isArray(responses) ? responses.slice(0, 5) : [];
+
+  return (
+    <div style={{ maxWidth: 1200, margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <h2 style={{ color: '#1565c0', marginBottom: 20 }}>Encuestas NPS post-cita</h2>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '2px solid #e0e0e0' }}>
+        {(['dashboard', 'surveys', 'send'] as const).map(t => {
+          const labels = { dashboard: 'Dashboard NPS', surveys: 'Encuestas enviadas', send: 'Enviar encuesta' };
+          return (
+            <button key={t} onClick={() => setTab(t)}
+              style={{
+                padding: '10px 22px', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600,
+                background: tab === t ? '#1565c0' : '#f5f5f5',
+                color: tab === t ? '#fff' : '#555',
+                borderRadius: '8px 8px 0 0',
+                borderBottom: tab === t ? '2px solid #1565c0' : '2px solid transparent',
+              }}>
+              {labels[t]}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Dashboard ── */}
+      {tab === 'dashboard' && (
+        <div>
+          {stats ? (
+            <>
+              {/* Big NPS score + metrics */}
+              <div style={{ display: 'flex', gap: 20, marginBottom: 28, flexWrap: 'wrap' }}>
+                <div style={{ flex: '0 0 180px', background: '#fff', border: '1px solid #e0e0e0', borderRadius: 16, padding: '28px 20px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ fontSize: 13, color: '#666', marginBottom: 8, fontWeight: 600 }}>SCORE NPS</div>
+                  <div style={{ fontSize: 64, fontWeight: 900, color: npsColor(stats.npsScore), lineHeight: 1 }}>{Math.round(stats.npsScore)}</div>
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>de -100 a +100</div>
+                  <div style={{ fontSize: 12, color: '#555', marginTop: 10 }}>Tasa respuesta: <b>{Math.round(stats.responseRate)}%</b></div>
+                </div>
+                {[
+                  { label: 'Promotores', val: stats.promoters, pct: stats.total ? Math.round(stats.promoters / stats.total * 100) : 0, bg: '#e8f5e9', color: '#2e7d32' },
+                  { label: 'Pasivos',    val: stats.passives,  pct: stats.total ? Math.round(stats.passives  / stats.total * 100) : 0, bg: '#fff8e1', color: '#f57f17' },
+                  { label: 'Detractores',val: stats.detractors,pct: stats.total ? Math.round(stats.detractors/ stats.total * 100) : 0, bg: '#ffebee', color: '#c62828' },
+                ].map(m => (
+                  <div key={m.label} style={{ flex: '1 1 150px', background: m.bg, border: `1px solid ${m.color}33`, borderRadius: 16, padding: '20px 20px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 13, color: m.color, fontWeight: 700, marginBottom: 8 }}>{m.label}</div>
+                    <div style={{ fontSize: 40, fontWeight: 800, color: m.color, lineHeight: 1 }}>{m.pct}%</div>
+                    <div style={{ fontSize: 13, color: '#555', marginTop: 6 }}>{m.val} respuestas</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Trend + Categories side by side */}
+              <div style={{ display: 'flex', gap: 20, marginBottom: 28, flexWrap: 'wrap' }}>
+                {/* Monthly trend */}
+                <div style={{ flex: '1 1 300px', background: '#fff', border: '1px solid #e0e0e0', borderRadius: 12, padding: '20px 24px' }}>
+                  <h3 style={{ color: '#1565c0', margin: '0 0 16px', fontSize: 16 }}>Tendencia mensual NPS</h3>
+                  {trend.length === 0 ? <p style={{ color: '#999', fontSize: 13 }}>Sin datos</p> : trend.map((m: any) => {
+                    const pct = Math.max(0, ((m.score + 100) / 200) * 100);
+                    return (
+                      <div key={m.month} style={{ marginBottom: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                          <span style={{ color: '#555' }}>{m.month}</span>
+                          <span style={{ fontWeight: 700, color: npsColor(m.score) }}>{Math.round(m.score)} <span style={{ color: '#999', fontWeight: 400 }}>({m.count})</span></span>
+                        </div>
+                        <div style={{ background: '#f5f5f5', borderRadius: 4, height: 10 }}>
+                          <div style={{ width: `${pct}%`, background: npsColor(m.score), height: '100%', borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Category averages */}
+                <div style={{ flex: '1 1 300px', background: '#fff', border: '1px solid #e0e0e0', borderRadius: 12, padding: '20px 24px' }}>
+                  <h3 style={{ color: '#1565c0', margin: '0 0 16px', fontSize: 16 }}>Promedio por categoría</h3>
+                  {CATEGORIES.map(cat => {
+                    const val: number = avgCat[cat] ?? 0;
+                    const pct = (val / 5) * 100;
+                    const c = val >= 4 ? '#2e7d32' : val >= 3 ? '#f57f17' : '#c62828';
+                    return (
+                      <div key={cat} style={{ marginBottom: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                          <span style={{ textTransform: 'capitalize', color: '#555' }}>{cat}</span>
+                          <span style={{ fontWeight: 700, color: c }}>{val.toFixed(1)}/5</span>
+                        </div>
+                        <div style={{ background: '#f5f5f5', borderRadius: 4, height: 10 }}>
+                          <div style={{ width: `${pct}%`, background: c, height: '100%', borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Recent comments */}
+              <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 12, padding: '20px 24px' }}>
+                <h3 style={{ color: '#1565c0', margin: '0 0 16px', fontSize: 16 }}>Comentarios recientes</h3>
+                {recent5.length === 0 ? <p style={{ color: '#999', fontSize: 13 }}>Sin comentarios</p> : recent5.map((r: any, i: number) => (
+                  <div key={r.id ?? i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start', padding: '12px 0', borderBottom: i < recent5.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+                    {scoreBadge(r.score)}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#333' }}>{r.patientName}</div>
+                      <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>{r.comment ?? <em style={{ color: '#bbb' }}>Sin comentario</em>}</div>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>{r.respondedAt ? r.respondedAt.slice(0, 10) : ''}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p style={{ color: '#666' }}>Cargando estadísticas...</p>
+          )}
+        </div>
+      )}
+
+      {/* ── Encuestas enviadas ── */}
+      {tab === 'surveys' && (
+        <div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14 }}>
+              <option value="">Todos los estados</option>
+              <option value="SENT">SENT</option>
+              <option value="RESPONDED">RESPONDED</option>
+              <option value="EXPIRED">EXPIRED</option>
+            </select>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ fontSize: 13, color: '#555' }}>Desde:</label>
+              <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)}
+                style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ fontSize: 13, color: '#555' }}>Hasta:</label>
+              <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)}
+                style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14 }} />
+            </div>
+            <span style={{ fontSize: 13, color: '#888' }}>{filteredSurveys.length} encuestas</span>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ background: '#f5f7ff' }}>
+                  {['Paciente','Dentista','Fecha envío','Estado','Puntuación','Comentario','Token'].map(h => (
+                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: '#1565c0', fontWeight: 700, borderBottom: '2px solid #e0e8ff', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSurveys.map((s: any, i: number) => (
+                  <tr key={s.id ?? i} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                    <td style={{ padding: '9px 14px', color: '#333' }}>{s.patientName}</td>
+                    <td style={{ padding: '9px 14px', color: '#555' }}>{s.dentistName}</td>
+                    <td style={{ padding: '9px 14px', color: '#666', whiteSpace: 'nowrap' }}>{s.sentAt ? s.sentAt.slice(0, 10) : '—'}</td>
+                    <td style={{ padding: '9px 14px' }}>{statusBadge(s.status)}</td>
+                    <td style={{ padding: '9px 14px' }}>{scoreBadge(s.score)}</td>
+                    <td style={{ padding: '9px 14px', color: '#555', maxWidth: 200 }}>
+                      {s.comment ? <span title={s.comment}>{s.comment.length > 50 ? s.comment.slice(0, 50) + '…' : s.comment}</span> : <span style={{ color: '#bbb' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontSize: 12, color: '#1565c0' }}>{s.token}</td>
+                  </tr>
+                ))}
+                {filteredSurveys.length === 0 && (
+                  <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: '#999' }}>Sin encuestas</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Enviar encuesta ── */}
+      {tab === 'send' && (
+        <div style={{ maxWidth: 640 }}>
+          <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 12, padding: '28px 32px', marginBottom: 24 }}>
+            <h3 style={{ color: '#1565c0', marginTop: 0 }}>Enviar nueva encuesta NPS</h3>
+            {[
+              { label: 'ID del paciente *', key: 'patientId', ph: 'UUID del paciente' },
+              { label: 'ID de la cita', key: 'appointmentId', ph: 'UUID de la cita' },
+              { label: 'ID del dentista', key: 'dentistId', ph: 'UUID del dentista' },
+            ].map(f => (
+              <div key={f.key} style={{ marginBottom: 18 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6 }}>{f.label}</label>
+                <input value={(sendForm as any)[f.key]} onChange={e => setSendForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  placeholder={f.ph}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 7, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box' }} />
+              </div>
+            ))}
+
+            {sendError && <p style={{ color: '#c62828', fontSize: 13 }}>{sendError}</p>}
+            {sendMsg && (
+              <div style={{ background: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+                <p style={{ color: '#2e7d32', margin: 0, fontWeight: 600 }}>¡Encuesta enviada!</p>
+                {sendToken && <p style={{ color: '#388e3c', margin: '6px 0 0', fontSize: 13 }}>Token: <code style={{ fontFamily: 'monospace', background: '#c8e6c9', padding: '2px 6px', borderRadius: 4 }}>{sendToken}</code></p>}
+              </div>
+            )}
+
+            <button onClick={sendSurvey}
+              style={{ padding: '11px 28px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
+              Enviar encuesta
+            </button>
+          </div>
+
+          {/* Survey preview */}
+          <div style={{ background: '#f5f9ff', border: '1px solid #90caf9', borderRadius: 12, padding: '24px 28px' }}>
+            <h4 style={{ color: '#1565c0', marginTop: 0, marginBottom: 16 }}>Vista previa de la encuesta</h4>
+            <div style={{ background: '#fff', borderRadius: 10, padding: '20px 24px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }}>
+              <p style={{ fontSize: 15, fontWeight: 600, color: '#333', margin: '0 0 12px' }}>¿Cómo puntuarías tu experiencia general? (0–10)</p>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+                {Array.from({ length: 11 }, (_, i) => (
+                  <div key={i} style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid #90caf9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#1565c0' }}>{i}</div>
+                ))}
+              </div>
+              {CATEGORIES.map(cat => (
+                <div key={cat} style={{ marginBottom: 10 }}>
+                  <span style={{ fontSize: 13, textTransform: 'capitalize', color: '#555' }}>{cat}: </span>
+                  <span style={{ fontSize: 12, color: '#90caf9' }}>|||||  1-5</span>
+                </div>
+              ))}
+              <div style={{ marginTop: 14, padding: 10, background: '#f9f9f9', borderRadius: 6, fontSize: 13, color: '#aaa', border: '1px dashed #ddd' }}>Comentarios opcionales...</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    # ---- Round 38: Operatories / Sillones ----
+    def generate_operatory_page_tsx(self) -> str:
+        return r"""import { useState, useEffect } from 'react';
+import { API_BASE } from '../config/api';
+import { apiFetch } from '../api/apiFetch';
+
+interface OperatorySlot {
+  time: string;
+  occupied: boolean;
+  patientName: string | null;
+  dentistName: string | null;
+  procedure: string | null;
+  appointmentId: string | null;
+}
+interface OperatoryOccupancy {
+  id: string;
+  name: string;
+  type: string;
+  color: string;
+  totalSlots: number;
+  occupiedSlots: number;
+  occupancyRate: number;
+  slots: OperatorySlot[];
+}
+interface OccupancySummary {
+  date: string;
+  operatories: OperatoryOccupancy[];
+}
+interface Operatory {
+  id: string;
+  name: string;
+  type: string;
+  equipment: string;
+  active: boolean;
+  color: string;
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  GENERAL: 'General', SURGERY: 'Cirugia', XRAY: 'Radiologia',
+  HYGIENE: 'Higiene', ORTHODONTICS: 'Ortodoncia', PEDIATRICS: 'Pediatria',
+};
+const TYPE_COLORS: Record<string, string> = {
+  GENERAL: '#1565c0', SURGERY: '#2e7d32', XRAY: '#e65100',
+  HYGIENE: '#6a1b9a', ORTHODONTICS: '#00695c', PEDIATRICS: '#880e4f',
+};
+const HOURS = ['09:00','10:00','11:00','12:00','13:00','16:00','17:00','18:00','19:00'];
+
+function initials(name: string | null) {
+  if (!name) return '';
+  return name.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase();
+}
+function abbr(proc: string | null) {
+  if (!proc) return '';
+  return proc.substring(0, 3).toUpperCase();
+}
+function todayStr() {
+  return new Date().toISOString().substring(0, 10);
+}
+
+export default function OperatoryPage() {
+  const [date, setDate] = useState(todayStr());
+  const [occupancy, setOccupancy] = useState<OccupancySummary | null>(null);
+  const [operatories, setOperatories] = useState<Operatory[]>([]);
+  const [tooltip, setTooltip] = useState<{ slot: OperatorySlot; x: number; y: number } | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: '', type: 'GENERAL', equipment: '', color: '#1976d2', active: true });
+  const [msg, setMsg] = useState('');
+
+  async function loadOccupancy() {
+    try {
+      const res = await apiFetch(`${API_BASE}/api/operatories/occupancy?date=${date}`);
+      const data = await res.json();
+      setOccupancy(data);
+    } catch { setOccupancy(null); }
+  }
+  async function loadOperatories() {
+    try {
+      const res = await apiFetch(`${API_BASE}/api/operatories`);
+      const data = await res.json();
+      setOperatories(data);
+    } catch { setOperatories([]); }
+  }
+
+  useEffect(() => { loadOccupancy(); }, [date]);
+  useEffect(() => { loadOperatories(); }, []);
+
+  async function saveOperatory() {
+    if (!form.name.trim()) { setMsg('El nombre es obligatorio'); return; }
+    try {
+      const url = editId ? `${API_BASE}/api/operatories/${editId}` : `${API_BASE}/api/operatories`;
+      const method = editId ? 'PUT' : 'POST';
+      const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      await res.json();
+      setShowForm(false); setEditId(null); setMsg('');
+      setForm({ name: '', type: 'GENERAL', equipment: '', color: '#1976d2', active: true });
+      loadOperatories(); loadOccupancy();
+    } catch { setMsg('Error al guardar'); }
+  }
+
+  function openEdit(op: Operatory) {
+    setEditId(op.id);
+    setForm({ name: op.name, type: op.type, equipment: op.equipment, color: op.color, active: op.active });
+    setShowForm(true);
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', maxWidth: 1400, margin: '0 auto', padding: 24 }}>
+      <h1 style={{ fontSize: 26, fontWeight: 700, color: '#1a237e', marginBottom: 24 }}>
+        Sillones / Operatorios
+      </h1>
+
+      {/* Vista de ocupacion */}
+      <section style={{ marginBottom: 40 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1565c0', margin: 0 }}>Vista de ocupacion</h2>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }} />
+        </div>
+
+        {occupancy && (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', minWidth: 600 }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: '8px 12px', background: '#f5f5f5', border: '1px solid #e0e0e0', fontSize: 13, color: '#555', minWidth: 70 }}>Hora</th>
+                  {occupancy.operatories.map(op => (
+                    <th key={op.id} style={{ padding: '8px 12px', background: '#f5f5f5', border: '1px solid #e0e0e0', minWidth: 130 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                        <span style={{ width: 12, height: 12, borderRadius: '50%', background: op.color, display: 'inline-block', flexShrink: 0 }} />
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{op.name}</span>
+                        <span style={{ background: op.color, color: '#fff', fontSize: 11, padding: '1px 6px', borderRadius: 10, fontWeight: 600 }}>
+                          {op.occupancyRate.toFixed(0)}%
+                        </span>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {HOURS.map(hour => (
+                  <tr key={hour}>
+                    <td style={{ padding: '6px 12px', border: '1px solid #e0e0e0', fontSize: 13, color: '#777', fontWeight: 600, background: '#fafafa' }}>{hour}</td>
+                    {occupancy.operatories.map(op => {
+                      const slot = op.slots.find(s => s.time === hour);
+                      return (
+                        <td key={op.id} style={{ padding: 4, border: '1px solid #e0e0e0', textAlign: 'center', position: 'relative' }}>
+                          {slot?.occupied ? (
+                            <div
+                              onMouseEnter={e => setTooltip({ slot: slot!, x: e.clientX, y: e.clientY })}
+                              onMouseLeave={() => setTooltip(null)}
+                              style={{
+                                background: op.color, color: '#fff', borderRadius: 6,
+                                padding: '4px 8px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                                userSelect: 'none',
+                              }}
+                            >
+                              {initials(slot.patientName)} - {abbr(slot.procedure)}
+                            </div>
+                          ) : (
+                            <div style={{ height: 28, borderRadius: 6, background: '#f9f9f9' }} />
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tooltip && (
+          <div style={{
+            position: 'fixed', top: tooltip.y + 12, left: tooltip.x + 12,
+            background: '#212121', color: '#fff', padding: '10px 14px', borderRadius: 8,
+            fontSize: 13, pointerEvents: 'none', zIndex: 9999, maxWidth: 260, lineHeight: 1.7,
+            boxShadow: '0 4px 16px rgba(0,0,0,.4)',
+          }}>
+            <div><strong>Paciente:</strong> {tooltip.slot.patientName}</div>
+            <div><strong>Dentista:</strong> {tooltip.slot.dentistName}</div>
+            <div><strong>Tratamiento:</strong> {tooltip.slot.procedure}</div>
+            <div><strong>Hora:</strong> {tooltip.slot.time}</div>
+          </div>
+        )}
+      </section>
+
+      {/* Gestion de sillones */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1565c0', margin: 0 }}>Gestion de sillones</h2>
+          <button onClick={() => { setShowForm(true); setEditId(null); setForm({ name: '', type: 'GENERAL', equipment: '', color: '#1976d2', active: true }); setMsg(''); }}
+            style={{ padding: '8px 18px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
+            + Nuevo sillon
+          </button>
+        </div>
+
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: '#e3f2fd' }}>
+                {['Nombre','Tipo','Equipamiento','Estado','Color','Acciones'].map(h => (
+                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#1565c0', borderBottom: '2px solid #90caf9' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {operatories.map((op, i) => (
+                <tr key={op.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9f9f9' }}>
+                  <td style={{ padding: '10px 14px', fontWeight: 600 }}>{op.name}</td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{
+                      background: TYPE_COLORS[op.type] || '#555', color: '#fff',
+                      padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                    }}>{TYPE_LABELS[op.type] || op.type}</span>
+                  </td>
+                  <td style={{ padding: '10px 14px', color: '#555', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{op.equipment}</td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{
+                      background: op.active ? '#e8f5e9' : '#fce4ec',
+                      color: op.active ? '#2e7d32' : '#c62828',
+                      padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                    }}>{op.active ? 'Activo' : 'Inactivo'}</span>
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{ display: 'inline-block', width: 24, height: 24, borderRadius: 4, background: op.color, border: '1px solid #ccc' }} />
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <button onClick={() => openEdit(op)}
+                      style={{ marginRight: 8, padding: '5px 12px', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 13 }}>
+                      Editar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {operatories.length === 0 && (
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>Sin sillones registrados</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Modal form */}
+      {showForm && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000,
+        }}>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 28, width: 480, boxShadow: '0 8px 32px rgba(0,0,0,.2)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ margin: '0 0 20px', fontSize: 18, fontWeight: 700, color: '#1a237e' }}>
+              {editId ? 'Editar sillon' : 'Nuevo sillon'}
+            </h3>
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Nombre</label>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Ej: Sillon 3"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tipo</label>
+                <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14 }}>
+                  {Object.entries(TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Equipamiento</label>
+                <textarea value={form.equipment} onChange={e => setForm(f => ({ ...f, equipment: e.target.value }))}
+                  rows={3} placeholder="Lista de equipos separados por coma..."
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #90caf9', fontSize: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Color</label>
+                <input type="color" value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
+                  style={{ width: 48, height: 36, padding: 0, border: '1px solid #ccc', borderRadius: 6, cursor: 'pointer' }} />
+                <span style={{ marginLeft: 10, fontSize: 13, color: '#555' }}>{form.color}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <label style={{ fontSize: 13, fontWeight: 600 }}>Activo</label>
+                <input type="checkbox" checked={form.active} onChange={e => setForm(f => ({ ...f, active: e.target.checked }))}
+                  style={{ width: 18, height: 18, cursor: 'pointer' }} />
+              </div>
+            </div>
+            {msg && <p style={{ color: '#c62828', fontSize: 13, marginTop: 10 }}>{msg}</p>}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button onClick={() => { setShowForm(false); setEditId(null); setMsg(''); }}
+                style={{ padding: '9px 20px', background: '#eee', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>
+                Cancelar
+              </button>
+              <button onClick={saveOperatory}
+                style={{ padding: '9px 20px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+"""

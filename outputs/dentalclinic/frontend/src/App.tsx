@@ -36,6 +36,7 @@ import StaffPage from './pages/StaffPage';
 import SterilizationPage from './pages/SterilizationPage';
 import PatientMapPage from './pages/PatientMapPage';
 import PreVisitFormPage from './pages/PreVisitFormPage';
+import BackupPage from './pages/BackupPage';
 
 interface NavItem { label: string; to: string; }
 interface NavGroup { label: string; items: NavItem[]; }
@@ -95,6 +96,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Lista de espera', to: '/waitlist' },
       { label: 'Encuestas NPS', to: '/nps' },
       { label: 'Empleados', to: '/staff' },
+      { label: 'Backup S3', to: '/backup' },
     ],
   },
 ];
@@ -220,6 +222,7 @@ export default function App() {
           <Route path="/sterilization" element={<SterilizationPage />} />
           <Route path="/patient-map" element={<PatientMapPage />} />
           <Route path="/previsit-forms" element={<PreVisitFormPage />} />
+          <Route path="/backup" element={<BackupPage />} />
         </Routes>
       </main>
     </>
